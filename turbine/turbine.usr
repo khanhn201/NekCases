@@ -1,3 +1,5 @@
+c    #include "experimental/meshsmoother.f"
+
 c-----------------------------------------------------------------------
       subroutine uservp (ix,iy,iz,ieg)
       include 'SIZE'
@@ -47,14 +49,14 @@ c     identifier: 0: inner; 1: outer
       call nekgsync
       ifpsco(1)=.true.
       ifto=.true.
-c     call lambda2(t) ! Put lambda2 --> passive scalar 1
+      call lambda2(t(1,1,1,1,2)) ! Put lambda2 --> passive scalar 2
 
       n = lx1*ly1*lz1*nelt
       call compute_cfl(cfl,vx,vy,vz,dt)
       call copy(t, cflf, n)
-c     do i=1,n
-c       t(i,1,1,1,1)= log(t(i,1,1,1,1))
-c     enddo
+      do i=1,n
+        t(i,1,1,1,1)= log(t(i,1,1,1,1))
+      enddo
       
       if (param(96).eq.0) then
         ifusermv = .true.
@@ -94,12 +96,13 @@ c     NOTE ::: This subroutine MAY NOT be called by every process
         if (param(96).eq.0) then
           ux = 0.0
           uy = 0.0
+          uz = -1.0 ! If -1 testing inner blade, else 0
           uz = 0.0
         endif
         if (param(96).eq.1) then
           ux = 0.0
           uy = 0.0
-          uz = -0.01
+          uz = -1
         endif
         if ((param(96).eq.0).and.(bccv.eq.'mv ')) then
           ux = umeshx(ix,iy,iz,ie)
@@ -128,7 +131,7 @@ c-----------------------------------------------------------------------
       ie = gllel(ieg)
       ux=0.0
       uy=0.0
-      uz=-0.01
+      uz=-1
       temp=0
 
       return
@@ -167,79 +170,6 @@ c     nfld_neknek = 5 - u,v,w,pr,t in 3D
 
       return
       end
-c-----------------------------------------------------------------------
-      subroutine laplaceh(name,u,h1,h2,mask,mult,ifld
-     $                   ,tli,maxi,approx,napprox)
-      include 'SIZE'
-      include 'TOTAL'
-      include 'CTIMER'
-
-
-      common  /cprint/ ifprint, ifhzpc
-      logical          ifprint, ifhzpc
-
-      character*4 name
-      real u(1),h1(1),h2(1),mask(1),mult(1),approx (1)
-      integer   napprox(1)
-
-      parameter (lt=lx1*ly1*lz1*lelt)
-      common /scruz/ r (lt),ub(lt)
-
-      logical ifstdh
-      character*4  cname
-      character*6  name6
-
-      logical ifwt,ifvec
-
-      call chcopy(cname,name,4)
-      call capit (cname,4)
-
-      call blank (name6,6)
-      call chcopy(name6,name,4)
-      ifwt  = .true.
-      ifvec = .false.
-      isd   = 1
-      imsh  = 1
-      nel   = nelfld(ifld)
-
-      n = nx1*ny1*nz1*nel
-
-      call copy (ub,u,n)             ! ub = u on boundary
-      call dsavg(ub)                 ! Make certain ub is in H1
-                                     !     _
-      call axhelm (r,ub,h1,h2,1,1)   ! r = A*ub
-
-      do i=1,n                       !        _
-         r(i)=-r(i)*mask(i)          ! r = -M*A*ub
-      enddo
-
-      call dssum  (r,nx1,ny1,nz1)    ! dssum rhs
-
-      call project1
-     $     (r,n,approx,napprox,h1,h2,mask,mult,ifwt,ifvec,name6)
-
-
-      ifprint = .true.               ! Make Helmholtz
-      param(74) = 1                  ! verbose
-
-      tol = abs(tli)
-      p22=param(22)
-      param(22)=abs(tol)
-      if (nio.eq.0) write(6,*) 'Calling hmhzpf ',name
-      if (nel.eq.nelv) then
-        call hmhzpf (name,u,r,h1,h2,mask,mult,imsh,tol,maxi,isd,binvm1)
-      else
-        call hmhzpf (name,u,r,h1,h2,mask,mult,imsh,tol,maxi,isd,bintm1)
-      endif
-      param(22)=p22
-
-      call project2
-     $     (u,n,approx,napprox,h1,h2,mask,mult,ifwt,ifvec,name6)
-
-      call add2(u,ub,n)
-
-      return
-      end
 C=======================================================================
       subroutine usrdat2
       include 'SIZE'
@@ -250,6 +180,8 @@ C=======================================================================
       real mask
       common /mydiff/ xd(lx1,ly1,lz1,lelt),yd(lx1,ly1,lz1,lelt),
      $                zd(lx1,ly1,lz1,lelt),
+     $                xd1(lx1,ly1,lz1,lelt),yd1(lx1,ly1,lz1,lelt),
+     $                zd1(lx1,ly1,lz1,lelt),
      $                mask(lx1,ly1,lz1,lelt)
       common /myothr/ h1(lt),h2(lt),work(lt)
       logical cbc_mask, file_exists
@@ -261,6 +193,27 @@ C=======================================================================
 
       integer e,eg,f,napprox(2)
       character*80 filename
+
+
+      parameter(nbc=1)         !number of boundary conditions
+      character*3 dcbc(nbc)
+      save        dcbc
+      data        dcbc /'mv '/  !BCs listed here
+      real dd1(lx1*ly1*lz1*lelv)
+      real dd2(lx1*ly1*lz1*lelv)
+
+
+      idftyp = 0      !distance function - 0 -> exponential, 1-> tanh
+      alpha = 15.     !Input for wall distance function 
+      beta  = 0.01     !
+
+      nouter = 50      !total loops around laplacian and optimizer smoothing
+      nlap = 20        !number of laplacian iterations in each loop
+      nopt = 20        !number of optimization iterations in each loop
+
+      mtyp = 1         !metric type
+
+
 
       n = lx1*ly1*lz1*nelt
       call domain_size(xmn,xmx,ymn,ymx,zmn,zmx)
@@ -280,13 +233,12 @@ C=======================================================================
 
       call izero(napprox,2)
       
-      if (param(96).eq.0) then
+      nface = 2*ldim
+      if (param(96).eq.0) then !in the blade mesh
       param(59) = 1
       ifxyo = .true.
       ifmvbd    = .true.
       ifusermv = .true.
-
-      nface = 2*ldim
 
       do e=1,nelv
       do f=1,nface
@@ -295,6 +247,8 @@ C=======================================================================
          if (cbc(f,e,1).eq.'int') cbc_mask = .true.
          if (cbc(f,e,1).eq.'W  ') cbc_mask = .true.
          if (cbc(f,e,1).eq.'v  ') cbc_mask = .true.
+         if (cbc(f,e,1).eq.'O  ') cbc_mask = .true.
+         if (cbc(f,e,1).eq.'SYM') cbc_mask = .true.
 
          if (cbc_mask) then         ! On interpolated surface
             if (cbc(f,e,1).eq.'int'.or.cbc(f,e,1).eq.'W  ') then ! On rim or blade
@@ -357,10 +311,6 @@ C=======================================================================
                  xd(i,j,k,e) = pc(1) - x
                  yd(i,j,k,e) = pc(2) - y
                  zd(i,j,k,e) = pc(3) - z
-                 write(6,*) nid,' limits1',fourlimits(1,1)
-                 write(6,*) nid,' limits2',fourlimits(1,2)
-                 write(6,*) nid,' uv ', u, v
-                 write(6,*) nid,' p123', pc
               endif
          endif
       enddo
@@ -368,46 +318,157 @@ C=======================================================================
       enddo
       enddo
 
-      tol     = 1.e-7
-      maxit   = 200
-      write(6,*) nid,' calling laplaceh a'
-      call laplaceh('dspx',xd,h1,h2,mask,vmult,1,tol,maxit,work,napprox)
-      write(6,*) nid,' calling laplaceh b'
-      call laplaceh('dspy',yd,h1,h2,mask,vmult,1,tol,maxit,work,napprox)
-      write(6,*) nid,' calling laplaceh c'
-      call laplaceh('dspz',zd,h1,h2,mask,vmult,1,tol,maxit,work,napprox)
-      write(6,*) nid,' done laplaceh c'
-
-      call outpost(xd,yd,zd,pr,t,'   ')
-c     call add2(xm1,xd,n)
-c     call add2(ym1,yd,n)
-c     call add2(zm1,zd,n)
-
-c     do k=1,2
-      call add2s2(xm1,xd,0.4,n)
-      call add2s2(ym1,yd,0.4,n)
-      call add2s2(zm1,zd,0.4,n)
-      call outpost(xd,yd,zd,pr,t,'   ')
-      call fix_geom !Reblend surface elements that have been projected
-      call outpost(xd,yd,zd,pr,t,'   ')
-c     end do
-
-
-      call exitti('quit usrdat2$',n)
-
       do iel=1,nelt
          do iface = 1, nface
             if (cbc(iface,iel,1) .eq. 'W  ') then
                cbc(iface,iel,1) = 'mv '
                boundaryID(iface,iel) = 1
             endif
+c     If only testing inner blade
+c           if (cbc(iface,iel,1) .eq. 'int') then
+c              cbc(iface,iel,1) = 'v  '
+c           endif
+c     Else
             if (cbc(iface,iel,1) .eq. 'v  ') then
                cbc(iface,iel,1) = 'int'
-               boundaryID(iface,iel) = 1
+            endif
+            if (cbc(iface,iel,1) .eq. 'O  ') then
+               cbc(iface,iel,1) = 'int'
             endif
          enddo 
       enddo
-      endif
+
+      alpha = 0.01
+      endif !end of inner mesh
+
+      if (param(96).eq.1) then !in the outer mesh
+      param(59) = 1
+      ifxyo = .true.
+      rad_target = 5.4
+      do e=1,nelv
+      do f=1,nface
+
+         cbc_mask = .false.
+         if (cbc(f,e,1).eq.'int') cbc_mask = .true.
+         if (cbc(f,e,1).eq.'W  ') cbc_mask = .true.
+         if (cbc(f,e,1).eq.'v  ') cbc_mask = .true.
+         if (cbc(f,e,1).eq.'O  ') cbc_mask = .true.
+         if (cbc(f,e,1).eq.'SYM') cbc_mask = .true.
+
+         if (cbc_mask) then         ! On interpolated surface
+            if (cbc(f,e,1).eq.'int') then
+               call facind(i0,i1,j0,j1,k0,k1,lx1,ly1,lz1,f)
+               do k=k0,k1
+               do j=j0,j1
+               do i=i0,i1
+                  mask(i,j,k,e) = 0.0
+               enddo
+               enddo
+               enddo
+            endif
+         endif
+      enddo
+      enddo
+      call dsop(mask,'*  ',lx1,ly1,lz1)  ! zero mask for any surface vertex
+
+      do e=1,nelv
+      do k=1,lz1
+      do j=1,ly1
+      do i=1,lx1
+         eg = lglel(e)
+         x = xm1(i,j,k,e)
+         y = ym1(i,j,k,e)
+         z = zm1(i,j,k,e)
+         rad_loc = sqrt(x*x + y*y)
+         if (mask(i,j,k,e).eq.0) then ! On rim
+              xt = (rad_target/rad_loc)*x
+              yt = (rad_target/rad_loc)*y
+              xd(i,j,k,e) = xt - xm1(i,j,k,e)
+              yd(i,j,k,e) = yt - ym1(i,j,k,e)
+              
+         endif
+      enddo
+      enddo
+      enddo
+      enddo
+      
+      do iel=1,nelt
+         do iface = 1, nface
+            if (cbc(iface,iel,1) .eq. 'SYM') then
+               cbc(iface,iel,1) = 'int'
+            endif
+         enddo 
+      enddo
+      alpha = 10
+
+      endif  !end of outer mesh
+
+
+c     call outpost(xd,yd,zd,pr,t,'   ')
+
+      tol     = 1.e-7
+      maxit   = 250
+      factor = 0.2
+      lapit = 10
+      do k=1,lapit
+        call cheap_dist(dd1,1,'mv ')
+        call cheap_dist(dd2,1,'int')
+        do j=1,lx1*ly1*lz1*nelv
+           dd1(j) = min(dd1(j),dd2(j))
+        enddo
+        call cheap_dist(dd2,1,'SYM')
+        do j=1,lx1*ly1*lz1*nelv
+           dd1(j) = min(dd1(j),dd2(j))
+        enddo
+        call cheap_dist(dd2,1,'W  ')
+        do j=1,lx1*ly1*lz1*nelv
+           dd1(j) = min(dd1(j),dd2(j))
+        enddo
+        call cheap_dist(dd2,1,'v  ')
+        do j=1,lx1*ly1*lz1*nelv
+           dd1(j) = min(dd1(j),dd2(j))
+        enddo
+        call cheap_dist(dd2,1,'O  ')
+        do j=1,lx1*ly1*lz1*nelv
+           dd1(j) = min(dd1(j),dd2(j))
+        enddo
+
+        do i=1,lx1*ly1*lz1*nelv
+           h1(i) = 1+ 9*EXP(-dd1(i)/alpha)
+        enddo
+
+        if (k.eq.lapit) then
+           factor = 1
+        endif
+        do j=1,lx1*ly1*lz1*nelv
+           xd1(j,1,1,1) = xd(j,1,1,1)*factor
+           yd1(j,1,1,1) = yd(j,1,1,1)*factor
+           zd1(j,1,1,1) = zd(j,1,1,1)*factor
+        enddo
+        call laplaceh('dspx',xd1,h1,h2,mask,vmult,1
+     $                ,tol,maxit,work,napprox)
+        call laplaceh('dspy',yd1,h1,h2,mask,vmult,1
+     $                ,tol,maxit,work,napprox)
+        call laplaceh('dspz',zd1,h1,h2,mask,vmult,1
+     $                ,tol,maxit,work,napprox)
+
+
+        call add2(xm1,xd1,n)
+        call add2(ym1,yd1,n)
+        call add2(zm1,zd1,n)
+c       call outpost(xd1,yd1,zd1,pr,h1,'   ')
+        call fix_geom !Reblend surface elements that have been projected
+        do j=1,lx1*ly1*lz1*nelv
+           xd(j,1,1,1) = xd(j,1,1,1)*(1-factor)
+           yd(j,1,1,1) = yd(j,1,1,1)*(1-factor)
+           zd(j,1,1,1) = zd(j,1,1,1)*(1-factor)
+        enddo
+      end do
+
+
+c     call exitti('quit usrdat2$',n)
+
+
 
       return
       end
@@ -427,7 +488,8 @@ c----------------------------------------------------------------------
 
       call domain_size(xmn,xmx,ymn,ymx,zmn,zmx)
       n = nx1*ny1*nz1*nelv
-      omega = 0
+      omega = 0.375
+c     omega = 0.0
       do i=1,n
          x = xm1(i,1,1,1)
          y = ym1(i,1,1,1)
@@ -494,15 +556,6 @@ c----------------------------------------------------------------------
       p(1) = Cu(1)/1000 + Cv(1)/1000 - x
       p(2) = Cu(2)/1000 + Cv(2)/1000 - y
       p(3) = Cu(3)/1000 + Cv(3)/1000 - z
-c     p(1) = eval_spline(foursplines(1,1,:), 0.5,
-c    $                fourlimits(1,1), fourlimits(1,2))/1000
-c     p(2) = eval_spline(foursplines(2,1,:), 0.5,
-c    $                fourlimits(2,1), fourlimits(2,2))/1000
-c     p(3) = eval_spline(foursplines(1,3,:), 0.5,
-c    $                fourlimits(1,1), fourlimits(1,2))/1000
-c     p(1) = Cu(1)/1000
-c     p(2) = Cv(1)/1000
-c     p(3) = x
       
       return
       end
@@ -514,8 +567,80 @@ c----------------------------------------------------------------------
       
       dt = t_max - t_min
       s = t*dt
-c     s = t
       eval_spline = coeffs(1) * s**3 + coeffs(2) * s**2 +
      &              coeffs(3) * s + coeffs(4)
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine laplaceh(name,u,h1,h2,mask,mult,ifld
+     $                   ,tli,maxi,approx,napprox)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'CTIMER'
+
+
+      common  /cprint/ ifprint, ifhzpc
+      logical          ifprint, ifhzpc
+
+      character*4 name
+      real u(1),h1(1),h2(1),mask(1),mult(1),approx (1)
+      integer   napprox(1)
+
+      parameter (lt=lx1*ly1*lz1*lelt)
+      common /scruz/ r (lt),ub(lt)
+
+      logical ifstdh
+      character*4  cname
+      character*6  name6
+
+      logical ifwt,ifvec
+
+      call chcopy(cname,name,4)
+      call capit (cname,4)
+
+      call blank (name6,6)
+      call chcopy(name6,name,4)
+      ifwt  = .true.
+      ifvec = .false.
+      isd   = 1
+      imsh  = 1
+      nel   = nelfld(ifld)
+
+      n = nx1*ny1*nz1*nel
+
+      call copy (ub,u,n)             ! ub = u on boundary
+      call dsavg(ub)                 ! Make certain ub is in H1
+                                     !     _
+      call axhelm (r,ub,h1,h2,1,1)   ! r = A*ub
+
+      do i=1,n                       !        _
+         r(i)=-r(i)*mask(i)          ! r = -M*A*ub
+      enddo
+
+      call dssum  (r,nx1,ny1,nz1)    ! dssum rhs
+
+      call project1
+     $     (r,n,approx,napprox,h1,h2,mask,mult,ifwt,ifvec,name6)
+
+
+      ifprint = .false.               ! Make Helmholtz
+      param(74) = 1                  ! verbose
+
+      tol = abs(tli)
+      p22=param(22)
+      param(22)=abs(tol)
+      if (nio.eq.0) write(6,*) 'Calling hmhzpf ',name
+      if (nel.eq.nelv) then
+        call hmhzpf (name,u,r,h1,h2,mask,mult,imsh,tol,maxi,isd,binvm1)
+      else
+        call hmhzpf (name,u,r,h1,h2,mask,mult,imsh,tol,maxi,isd,bintm1)
+      endif
+      param(22)=p22
+
+      call project2
+     $     (u,n,approx,napprox,h1,h2,mask,mult,ifwt,ifvec,name6)
+
+      call add2(u,ub,n)
+
       return
       end

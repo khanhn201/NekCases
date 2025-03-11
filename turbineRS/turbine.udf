@@ -1,0 +1,67 @@
+//
+// nekRS User Defined File
+//
+#include "udf.hpp"
+
+static dfloat P_OMEGA;
+
+#ifdef __okl__
+
+// Boundary conditions
+void codedFixedValueVelocity(bcData *bc)
+{
+  if (bc->id == 5) {// Int Boundaries
+      bc->u = bc->uinterp;
+      bc->v = bc->vinterp;
+      bc->w = bc->winterp;
+  }
+  if (bc->id == 3) {// v Boundaries
+      bc->u = 0.0;
+      bc->v = 0.0;
+      bc->w = -1.0;
+  }
+}
+
+// void codedFixedValueScalar(bcData *bc)
+// {
+// 
+// }
+
+
+void meshVelocityDirichletConditions(bcData *bc)
+{
+    bc->meshu = p_omega * bc->y;
+    bc->meshv = -p_omega * bc->x;
+    bc->meshw = 0.0;
+}
+
+#endif
+
+void UDF_LoadKernels(deviceKernelProperties& kernelInfo)
+{
+  kernelInfo.define("p_omega") = P_OMEGA;
+}
+
+void UDF_Setup0(MPI_Comm comm, setupAide &options)
+{
+  platform->par->extract("casedata", "p_omega", P_OMEGA);
+}
+
+void userq(double time)
+{
+
+}
+
+void UDF_Setup()
+{
+}
+
+void UDF_ExecuteStep(double time, int tstep)
+{
+  auto mesh = nrs->mesh;
+  
+  /*if (nrs->checkpointStep) {*/
+  /*  nrs->copyToNek(time, tstep);*/
+  /*  nek::userchk();*/
+  /*}*/
+}

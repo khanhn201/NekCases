@@ -1,0 +1,422 @@
+c-----------------------------------------------------------------------
+      subroutine uservp (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+C
+      udiff =0.
+      utrans=0.
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userf  (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+C
+      ffx = 0.0
+      ffy = 0.0
+      ffz = 0.0
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userq  (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+C
+      qvol   = 0.0
+      source = 0.0
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userchk
+      include 'SIZE'  
+      include 'TOTAL' 
+      include 'NEKNEK'
+
+      !real x0(3)
+      !save x0
+      !data x0 /3*0/
+      !
+      !integer bIDs(1), iobj_wall(1)
+
+      !call nekgsync
+      !ifpsco(1)=.true.
+      !ifto=.true.
+      !call lambda2(t(1,1,1,1,2)) ! Put lambda2 --> passive scalar 2
+      !
+      !n = lx1*ly1*lz1*nelt
+      !call compute_cfl(cfl,vx,vy,vz,dt)
+      !call copy(t, cflf, n)
+      !do i=1,n
+      !  t(i,1,1,1,1)= log(t(i,1,1,1,1))
+      !enddo
+      !
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userbc (ix,iy,iz,iside,ieg)
+c     NOTE ::: This subroutine MAY NOT be called by every process
+
+
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      include 'NEKNEK'
+
+
+      character*3 bccv
+      common /c_mybc/ umeshx(lx1,ly1,lz1,lelt)
+     $              , umeshy(lx1,ly1,lz1,lelt)
+     $              , umeshz(lx1,ly1,lz1,lelt)
+
+
+      ie = gllel(ieg)
+
+      bccv = cbc(iside,ie,1)
+      temp=0.0
+
+      if (imask(ix,iy,iz,ie).eq.0) then
+          ux = 0.0
+          uy = 0.0
+          uz = -1
+      else
+        ux = valint(ix,iy,iz,ie,1)
+        uy = valint(ix,iy,iz,ie,2)
+        uz = valint(ix,iy,iz,ie,3)
+      endif
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine useric (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+
+      integer icalld
+      save    icalld
+      data    icalld  /0/
+
+      n = nx1*ny1*nz1*nelv
+
+      ie = gllel(ieg)
+      ux=0.0
+      uy=0.0
+      uz=-1
+      temp=0
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat0
+      include 'SIZE'
+      include 'CASEDATA'
+
+      !call nekrs_registerPtr('p_u0', P_U0)
+      !call nekrs_registerPtr('p_v0', P_V0)
+      call nekrs_registerPtr('p_omega', P_OMEGA)
+      !call nekrs_registerPtr('p_visc', P_VISC)
+      !call nekrs_registerPtr('p_scale', P_SCALE)
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKNEK'
+
+      return
+      end
+C=======================================================================
+      subroutine usrdat2
+      include 'SIZE'
+      include 'TOTAL'
+
+
+      parameter (lt=lx1*ly1*lz1*lelt)
+      real mask
+      common /mydiff/ xd(lx1,ly1,lz1,lelt),yd(lx1,ly1,lz1,lelt),
+     $                zd(lx1,ly1,lz1,lelt),
+     $                xd1(lx1,ly1,lz1,lelt),yd1(lx1,ly1,lz1,lelt),
+     $                zd1(lx1,ly1,lz1,lelt),
+     $                mask(lx1,ly1,lz1,lelt)
+      common /myothr/ h1(lt),h2(lt),work(lt)
+      logical cbc_mask, file_exists
+
+      real foursplines(4,3,4)
+      real fourlimits(4,2)
+      real pc(3)
+      real lpoints(4,3)
+
+      integer e,eg,f,napprox(2)
+      character*80 filename
+
+
+      parameter(nbc=1)         !number of boundary conditions
+      character*3 dcbc(nbc)
+      save        dcbc
+      data        dcbc /'mv '/  !BCs listed here
+      real dd1(lx1*ly1*lz1*lelv)
+      real dd2(lx1*ly1*lz1*lelv)
+
+
+      idftyp = 0      !distance function - 0 -> exponential, 1-> tanh
+      alpha = 15.     !Input for wall distance function 
+      beta  = 0.01     !
+
+      nouter = 50      !total loops around laplacian and optimizer smoothing
+      nlap = 20        !number of laplacian iterations in each loop
+      nopt = 20        !number of optimization iterations in each loop
+
+      mtyp = 1         !metric type
+
+
+
+      n = lx1*ly1*lz1*nelt
+      call domain_size(xmn,xmx,ymn,ymx,zmn,zmx)
+
+      scale = 0.001
+      call cmult(xm1,scale,n)
+      call cmult(ym1,scale,n)
+      call cmult(zm1,scale,n)
+
+      call rzero(xd,n)
+      call rzero(yd,n)
+      call rzero(zd,n)
+
+      call rone (mask,n)
+      call rone (h1,n)
+      call rzero(h2,n)
+
+      call izero(napprox,2)
+      
+      nface = 2*ldim
+
+      param(59) = 1
+      ifxyo = .true.
+      rad_target = 5.4
+      do e=1,nelv
+      do f=1,nface
+
+         cbc_mask = .false.
+         if (cbc(f,e,1).eq.'int') cbc_mask = .true.
+         if (cbc(f,e,1).eq.'W  ') cbc_mask = .true.
+         if (cbc(f,e,1).eq.'v  ') cbc_mask = .true.
+         if (cbc(f,e,1).eq.'O  ') cbc_mask = .true.
+         if (cbc(f,e,1).eq.'SYM') cbc_mask = .true.
+
+         if (cbc_mask) then         ! On interpolated surface
+            if (cbc(f,e,1).eq.'int') then
+               call facind(i0,i1,j0,j1,k0,k1,lx1,ly1,lz1,f)
+               do k=k0,k1
+               do j=j0,j1
+               do i=i0,i1
+                  mask(i,j,k,e) = 0.0
+               enddo
+               enddo
+               enddo
+            endif
+         endif
+      enddo
+      enddo
+      call dsop(mask,'*  ',lx1,ly1,lz1)  ! zero mask for any surface vertex
+
+      do e=1,nelv
+      do k=1,lz1
+      do j=1,ly1
+      do i=1,lx1
+         eg = lglel(e)
+         x = xm1(i,j,k,e)
+         y = ym1(i,j,k,e)
+         z = zm1(i,j,k,e)
+         rad_loc = sqrt(x*x + y*y)
+         if (mask(i,j,k,e).eq.0) then ! On rim
+              xt = (rad_target/rad_loc)*x
+              yt = (rad_target/rad_loc)*y
+              xd(i,j,k,e) = xt - xm1(i,j,k,e)
+              yd(i,j,k,e) = yt - ym1(i,j,k,e)
+              
+         endif
+      enddo
+      enddo
+      enddo
+      enddo
+      
+      do iel=1,nelt
+         do iface = 1, nface
+            if (cbc(iface,iel,1) .eq. 'SYM') then
+               cbc(iface,iel,1) = 'int'
+            endif
+         enddo 
+      enddo
+
+
+
+c     call outpost(xd,yd,zd,pr,t,'   ')
+      alpha = 10
+      tol     = 1.e-7
+      maxit   = 250
+      factor = 0.2
+      lapit = 10
+      do k=1,lapit
+        call cheap_dist(dd1,1,'mv ')
+        call cheap_dist(dd2,1,'int')
+        do j=1,lx1*ly1*lz1*nelv
+           dd1(j) = min(dd1(j),dd2(j))
+        enddo
+        call cheap_dist(dd2,1,'SYM')
+        do j=1,lx1*ly1*lz1*nelv
+           dd1(j) = min(dd1(j),dd2(j))
+        enddo
+        call cheap_dist(dd2,1,'W  ')
+        do j=1,lx1*ly1*lz1*nelv
+           dd1(j) = min(dd1(j),dd2(j))
+        enddo
+        call cheap_dist(dd2,1,'v  ')
+        do j=1,lx1*ly1*lz1*nelv
+           dd1(j) = min(dd1(j),dd2(j))
+        enddo
+        call cheap_dist(dd2,1,'O  ')
+        do j=1,lx1*ly1*lz1*nelv
+           dd1(j) = min(dd1(j),dd2(j))
+        enddo
+
+        do i=1,lx1*ly1*lz1*nelv
+           h1(i) = 1+ 9*EXP(-dd1(i)/alpha)
+        enddo
+
+        if (k.eq.lapit) then
+           factor = 1
+        endif
+        do j=1,lx1*ly1*lz1*nelv
+           xd1(j,1,1,1) = xd(j,1,1,1)*factor
+           yd1(j,1,1,1) = yd(j,1,1,1)*factor
+           zd1(j,1,1,1) = zd(j,1,1,1)*factor
+        enddo
+        call laplaceh('dspx',xd1,h1,h2,mask,vmult,1
+     $                ,tol,maxit,work,napprox)
+        call laplaceh('dspy',yd1,h1,h2,mask,vmult,1
+     $                ,tol,maxit,work,napprox)
+        call laplaceh('dspz',zd1,h1,h2,mask,vmult,1
+     $                ,tol,maxit,work,napprox)
+
+
+        call add2(xm1,xd1,n)
+        call add2(ym1,yd1,n)
+        call add2(zm1,zd1,n)
+c       call outpost(xd1,yd1,zd1,pr,h1,'   ')
+        call fix_geom !Reblend surface elements that have been projected
+        do j=1,lx1*ly1*lz1*nelv
+           xd(j,1,1,1) = xd(j,1,1,1)*(1-factor)
+           yd(j,1,1,1) = yd(j,1,1,1)*(1-factor)
+           zd(j,1,1,1) = zd(j,1,1,1)*(1-factor)
+        enddo
+      end do
+
+
+c     call exitti('quit usrdat2$',n)
+
+
+
+
+      do iel=1,nelt
+      do ifc=1,2*ndim
+         if (cbc(ifc,iel,1) .eq. 'mv ') then
+           boundaryID(ifc,iel) = 1
+         endif
+         if (cbc(ifc,iel,1) .eq. 'W  ') then
+           boundaryID(ifc,iel) = 2
+         endif
+         if (cbc(ifc,iel,1) .eq. 'v  ') then
+           boundaryID(ifc,iel) = 3
+         endif
+         if (cbc(ifc,iel,1) .eq. 'O  ') then
+           boundaryID(ifc,iel) = 4
+         endif
+         if (cbc(ifc,iel,1) .eq. 'int') then
+           boundaryID(ifc,iel) = 5
+         endif
+      enddo
+      enddo
+
+      return
+      end
+c----------------------------------------------------------------------
+      subroutine usrdat3
+      return
+      end
+c----------------------------------------------------------------------
+      subroutine laplaceh(name,u,h1,h2,mask,mult,ifld
+     $                   ,tli,maxi,approx,napprox)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'CTIMER'
+
+
+      common  /cprint/ ifprint, ifhzpc
+      logical          ifprint, ifhzpc
+
+      character*4 name
+      real u(1),h1(1),h2(1),mask(1),mult(1),approx (1)
+      integer   napprox(1)
+
+      parameter (lt=lx1*ly1*lz1*lelt)
+      common /scruz/ r (lt),ub(lt)
+
+      logical ifstdh
+      character*4  cname
+      character*6  name6
+
+      logical ifwt,ifvec
+
+      call chcopy(cname,name,4)
+      call capit (cname,4)
+
+      call blank (name6,6)
+      call chcopy(name6,name,4)
+      ifwt  = .true.
+      ifvec = .false.
+      isd   = 1
+      imsh  = 1
+      nel   = nelfld(ifld)
+
+      n = nx1*ny1*nz1*nel
+
+      call copy (ub,u,n)             ! ub = u on boundary
+      call dsavg(ub)                 ! Make certain ub is in H1
+                                     !     _
+      call axhelm (r,ub,h1,h2,1,1)   ! r = A*ub
+
+      do i=1,n                       !        _
+         r(i)=-r(i)*mask(i)          ! r = -M*A*ub
+      enddo
+
+      call dssum  (r,nx1,ny1,nz1)    ! dssum rhs
+
+      call project1
+     $     (r,n,approx,napprox,h1,h2,mask,mult,ifwt,ifvec,name6)
+
+
+      ifprint = .false.               ! Make Helmholtz
+      param(74) = 1                  ! verbose
+
+      tol = abs(tli)
+      p22=param(22)
+      param(22)=abs(tol)
+      if (nio.eq.0) write(6,*) 'Calling hmhzpf ',name
+      if (nel.eq.nelv) then
+        call hmhzpf (name,u,r,h1,h2,mask,mult,imsh,tol,maxi,isd,binvm1)
+      else
+        call hmhzpf (name,u,r,h1,h2,mask,mult,imsh,tol,maxi,isd,bintm1)
+      endif
+      param(22)=p22
+
+      call project2
+     $     (u,n,approx,napprox,h1,h2,mask,mult,ifwt,ifvec,name6)
+
+      call add2(u,ub,n)
+
+      return
+      end

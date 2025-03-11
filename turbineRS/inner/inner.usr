@@ -1,0 +1,576 @@
+c-----------------------------------------------------------------------
+      subroutine uservp (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+C
+      udiff =0.
+      utrans=0.
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userf  (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+C
+      ffx = 0.0
+      ffy = 0.0
+      ffz = 0.0
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userq  (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+C
+      qvol   = 0.0
+      source = 0.0
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userchk
+      include 'SIZE'  
+      include 'TOTAL' 
+      include 'NEKNEK'
+
+      !real x0(3)
+      !save x0
+      !data x0 /3*0/
+      !
+      !integer bIDs(1), iobj_wall(1)
+      !
+      !call nekgsync
+      !ifpsco(1)=.true.
+      !ifto=.true.
+      !call lambda2(t(1,1,1,1,2)) ! Put lambda2 --> passive scalar 2
+      !
+      !n = lx1*ly1*lz1*nelt
+      !call compute_cfl(cfl,vx,vy,vz,dt)
+      !call copy(t, cflf, n)
+      !do i=1,n
+      !  t(i,1,1,1,1)= log(t(i,1,1,1,1))
+      !enddo
+      !
+      !! Turbine inner
+      !!ifusermv = .true.
+      !!if (ifusermv) call my_meshv
+      !if (istep.eq.0) then
+      !   bIDs(1) = 1
+      !   call create_obj(iobj_wall(1),bIDs,1)
+      !endif
+      !call torque_calc(1.0,x0,.true.,.true.)
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userbc (ix,iy,iz,iside,ieg)
+c     NOTE ::: This subroutine MAY NOT be called by every process
+
+
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      include 'NEKNEK'
+
+
+      character*3 bccv
+      common /c_mybc/ umeshx(lx1,ly1,lz1,lelt)
+     $              , umeshy(lx1,ly1,lz1,lelt)
+     $              , umeshz(lx1,ly1,lz1,lelt)
+
+
+      ie = gllel(ieg)
+
+      bccv = cbc(iside,ie,1)
+      temp=0.0
+
+      if (imask(ix,iy,iz,ie).eq.0) then
+        ux = 0.0
+        uy = 0.0
+        uz = -1.0 ! If -1 testing inner blade, else 0
+        uz = 0.0
+        if (bccv.eq.'mv ') then
+          ux = umeshx(ix,iy,iz,ie)
+          uy = umeshy(ix,iy,iz,ie)
+          uz = umeshz(ix,iy,iz,ie)
+        endif
+      else
+        ux = valint(ix,iy,iz,ie,1)
+        uy = valint(ix,iy,iz,ie,2)
+        uz = valint(ix,iy,iz,ie,3)
+      endif
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine useric (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+
+      integer icalld
+      save    icalld
+      data    icalld  /0/
+
+      n = nx1*ny1*nz1*nelv
+
+      ie = gllel(ieg)
+      ux=0.0
+      uy=0.0
+      uz=-1
+      temp=0
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat0
+      include 'SIZE'
+      include 'CASEDATA'
+
+      !call nekrs_registerPtr('p_u0', P_U0)
+      !call nekrs_registerPtr('p_v0', P_V0)
+      call nekrs_registerPtr('p_omega', P_OMEGA)
+      !call nekrs_registerPtr('p_visc', P_VISC)
+      !call nekrs_registerPtr('p_scale', P_SCALE)
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKNEK'
+
+      return
+      end
+C=======================================================================
+      subroutine usrdat2
+      include 'SIZE'
+      include 'TOTAL'
+
+
+      parameter (lt=lx1*ly1*lz1*lelt)
+      real mask
+      common /mydiff/ xd(lx1,ly1,lz1,lelt),yd(lx1,ly1,lz1,lelt),
+     $                zd(lx1,ly1,lz1,lelt),
+     $                xd1(lx1,ly1,lz1,lelt),yd1(lx1,ly1,lz1,lelt),
+     $                zd1(lx1,ly1,lz1,lelt),
+     $                mask(lx1,ly1,lz1,lelt)
+      common /myothr/ h1(lt),h2(lt),work(lt)
+      logical cbc_mask, file_exists
+
+      real foursplines(4,3,4)
+      real fourlimits(4,2)
+      real pc(3)
+      real lpoints(4,3)
+
+      integer e,eg,f,napprox(2)
+      character*80 filename
+
+
+      parameter(nbc=1)         !number of boundary conditions
+      character*3 dcbc(nbc)
+      save        dcbc
+      data        dcbc /'mv '/  !BCs listed here
+      real dd1(lx1*ly1*lz1*lelv)
+      real dd2(lx1*ly1*lz1*lelv)
+
+
+      idftyp = 0      !distance function - 0 -> exponential, 1-> tanh
+      alpha = 15.     !Input for wall distance function 
+      beta  = 0.01     !
+
+      nouter = 50      !total loops around laplacian and optimizer smoothing
+      nlap = 20        !number of laplacian iterations in each loop
+      nopt = 20        !number of optimization iterations in each loop
+
+      mtyp = 1         !metric type
+
+
+
+      n = lx1*ly1*lz1*nelt
+      call domain_size(xmn,xmx,ymn,ymx,zmn,zmx)
+
+      scale = 0.001
+      call cmult(xm1,scale,n)
+      call cmult(ym1,scale,n)
+      call cmult(zm1,scale,n)
+
+      call rzero(xd,n)
+      call rzero(yd,n)
+      call rzero(zd,n)
+
+      call rone (mask,n)
+      call rone (h1,n)
+      call rzero(h2,n)
+
+      call izero(napprox,2)
+      
+      nface = 2*ldim
+      param(59) = 1
+      ifxyo = .true.
+      ifmvbd    = .true.
+      ifusermv = .true.
+
+      do e=1,nelv
+      do f=1,nface
+
+         cbc_mask = .false.
+         if (cbc(f,e,1).eq.'int') cbc_mask = .true.
+         if (cbc(f,e,1).eq.'W  ') cbc_mask = .true.
+         if (cbc(f,e,1).eq.'v  ') cbc_mask = .true.
+         if (cbc(f,e,1).eq.'O  ') cbc_mask = .true.
+         if (cbc(f,e,1).eq.'SYM') cbc_mask = .true.
+
+         if (cbc_mask) then         ! On interpolated surface
+            if (cbc(f,e,1).eq.'int'.or.cbc(f,e,1).eq.'W  ') then ! On rim or blade
+               call facind(i0,i1,j0,j1,k0,k1,lx1,ly1,lz1,f)
+               do k=k0,k1
+               do j=j0,j1
+               do i=i0,i1
+                  mask(i,j,k,e) = 0.0
+               enddo
+               enddo
+               enddo
+            endif
+         endif
+      enddo
+      enddo
+      call dsop(mask,'*  ',lx1,ly1,lz1)  ! zero mask for any surface vertex
+
+      rad_target = glamax(xm1,n)
+      rad_thresh = 5.2
+      z_thresh = 0.2
+
+      do e=1,nelv
+      do k=1,lz1
+      do j=1,ly1
+      do i=1,lx1
+         eg = lglel(e)
+         x = xm1(i,j,k,e)
+         y = ym1(i,j,k,e)
+         z = zm1(i,j,k,e)
+         rad_loc = sqrt(x*x + y*y)
+         if (mask(i,j,k,e).eq.0.and.rad_loc.gt.rad_thresh) then ! On rim
+              xt = (rad_target/rad_loc)*x
+              yt = (rad_target/rad_loc)*y
+              xd(i,j,k,e) = xt - xm1(i,j,k,e)
+              yd(i,j,k,e) = yt - ym1(i,j,k,e)
+         endif
+         if (mask(i,j,k,e).eq.0.and.rad_loc.lt.rad_thresh
+     $         .and.abs(z).lt.z_thresh) then ! On blade
+              write(filename, '(A, I8.8, A)') 'surfaces/surface', 
+     $             eg, '.txt'
+              inquire(file=filename, exist=file_exists)
+              if (file_exists) then ! Has surface data
+                 call read_splines(foursplines, fourlimits, eg)
+                 lpoints(1,1) = xm1(1,ly1,1,e)
+                 lpoints(2,1) = xm1(lx1,ly1,1,e)
+                 lpoints(3,1) = xm1(lx1,ly1,lz1,e)
+                 lpoints(4,1) = xm1(1,ly1,lz1,e)
+                 lpoints(1,3) = zm1(1,ly1,1,e)
+                 lpoints(2,3) = zm1(lx1,ly1,1,e)
+                 lpoints(3,3) = zm1(lx1,ly1,lz1,e)
+                 lpoints(4,3) = zm1(1,ly1,lz1,e)
+                 
+                 v = (x-lpoints(1,1))/
+     $               (lpoints(4,1) - lpoints(1,1))
+                 u = z - (1-v)*lpoints(1,3) - v*lpoints(4,3)
+                 u = u/(-(1-v)*lpoints(1,3)+ (1-v)*lpoints(2,3)
+     $                - v*lpoints(4,3) + v*lpoints(3,3))
+                 u = 1-u
+                 call coons_patch(foursplines,fourlimits,u,v,pc,x,y,z)
+                 xd(i,j,k,e) = pc(1) - x
+                 yd(i,j,k,e) = pc(2) - y
+                 zd(i,j,k,e) = pc(3) - z
+              endif
+         endif
+      enddo
+      enddo
+      enddo
+      enddo
+
+      do iel=1,nelt
+         do iface = 1, nface
+            if (cbc(iface,iel,1) .eq. 'W  ') then
+               cbc(iface,iel,1) = 'mv '
+               boundaryID(iface,iel) = 1
+            endif
+c     If only testing inner blade
+c           if (cbc(iface,iel,1) .eq. 'int') then
+c              cbc(iface,iel,1) = 'v  '
+c           endif
+c     Else
+            if (cbc(iface,iel,1) .eq. 'v  ') then
+               cbc(iface,iel,1) = 'int'
+            endif
+            if (cbc(iface,iel,1) .eq. 'O  ') then
+               cbc(iface,iel,1) = 'int'
+            endif
+         enddo 
+      enddo
+
+
+
+c     call outpost(xd,yd,zd,pr,t,'   ')
+
+      alpha = 0.01
+      tol     = 1.e-7
+      maxit   = 250
+      factor = 0.2
+      lapit = 10
+      do k=1,lapit
+        call cheap_dist(dd1,1,'mv ')
+        call cheap_dist(dd2,1,'int')
+        do j=1,lx1*ly1*lz1*nelv
+           dd1(j) = min(dd1(j),dd2(j))
+        enddo
+        call cheap_dist(dd2,1,'SYM')
+        do j=1,lx1*ly1*lz1*nelv
+           dd1(j) = min(dd1(j),dd2(j))
+        enddo
+        call cheap_dist(dd2,1,'W  ')
+        do j=1,lx1*ly1*lz1*nelv
+           dd1(j) = min(dd1(j),dd2(j))
+        enddo
+        call cheap_dist(dd2,1,'v  ')
+        do j=1,lx1*ly1*lz1*nelv
+           dd1(j) = min(dd1(j),dd2(j))
+        enddo
+        call cheap_dist(dd2,1,'O  ')
+        do j=1,lx1*ly1*lz1*nelv
+           dd1(j) = min(dd1(j),dd2(j))
+        enddo
+
+        do i=1,lx1*ly1*lz1*nelv
+           h1(i) = 1+ 9*EXP(-dd1(i)/alpha)
+        enddo
+
+        if (k.eq.lapit) then
+           factor = 1
+        endif
+        do j=1,lx1*ly1*lz1*nelv
+           xd1(j,1,1,1) = xd(j,1,1,1)*factor
+           yd1(j,1,1,1) = yd(j,1,1,1)*factor
+           zd1(j,1,1,1) = zd(j,1,1,1)*factor
+        enddo
+        call laplaceh('dspx',xd1,h1,h2,mask,vmult,1
+     $                ,tol,maxit,work,napprox)
+        call laplaceh('dspy',yd1,h1,h2,mask,vmult,1
+     $                ,tol,maxit,work,napprox)
+        call laplaceh('dspz',zd1,h1,h2,mask,vmult,1
+     $                ,tol,maxit,work,napprox)
+
+
+        call add2(xm1,xd1,n)
+        call add2(ym1,yd1,n)
+        call add2(zm1,zd1,n)
+c       call outpost(xd1,yd1,zd1,pr,h1,'   ')
+        call fix_geom !Reblend surface elements that have been projected
+        do j=1,lx1*ly1*lz1*nelv
+           xd(j,1,1,1) = xd(j,1,1,1)*(1-factor)
+           yd(j,1,1,1) = yd(j,1,1,1)*(1-factor)
+           zd(j,1,1,1) = zd(j,1,1,1)*(1-factor)
+        enddo
+      end do
+
+
+c     call exitti('quit usrdat2$',n)
+
+
+
+      do iel=1,nelt
+      do ifc=1,2*ndim
+         if (cbc(ifc,iel,1) .eq. 'mv ') then
+           boundaryID(ifc,iel) = 1
+         endif
+         if (cbc(ifc,iel,1) .eq. 'W  ') then
+           boundaryID(ifc,iel) = 2
+         endif
+         if (cbc(ifc,iel,1) .eq. 'v  ') then
+           boundaryID(ifc,iel) = 3
+         endif
+         if (cbc(ifc,iel,1) .eq. 'O  ') then
+           boundaryID(ifc,iel) = 4
+         endif
+         if (cbc(ifc,iel,1) .eq. 'int') then
+           boundaryID(ifc,iel) = 5
+         endif
+      enddo
+      enddo
+
+      return
+      end
+c----------------------------------------------------------------------
+      subroutine usrdat3
+      return
+      end
+c----------------------------------------------------------------------
+      subroutine my_meshv(pts)
+
+      include 'SIZE'
+      include 'TOTAL'
+
+      common /c_mybc/ umeshx(lx1,ly1,lz1,lelt)
+     $              , umeshy(lx1,ly1,lz1,lelt)
+     $              , umeshz(lx1,ly1,lz1,lelt)
+
+      call domain_size(xmn,xmx,ymn,ymx,zmn,zmx)
+      n = nx1*ny1*nz1*nelv
+      omega = 0.375
+c     omega = 0.0
+      do i=1,n
+         x = xm1(i,1,1,1)
+         y = ym1(i,1,1,1)
+         z = zm1(i,1,1,1)
+         wx(i,1,1,1) = omega*y
+         wy(i,1,1,1) = -omega*x
+         wz(i,1,1,1) = 0
+
+         umeshx(i,1,1,1) = wx(i,1,1,1)
+         umeshy(i,1,1,1) = wy(i,1,1,1)
+         umeshz(i,1,1,1) = wz(i,1,1,1)
+      enddo
+      return
+      end
+c----------------------------------------------------------------------
+      subroutine read_splines(foursplines, fourlimits, element_number)
+
+      implicit none
+      real foursplines(4,3,4)
+      real fourlimits(4,2)
+      integer i, j, k, element_number
+      character*80 filename
+      integer unit
+
+
+      write(filename, '(A, I8.8, A)') 'surfaces/surface', 
+     $             element_number, '.txt'
+      open(unit=72, file=filename, status='old')
+
+      do k = 1, 4
+      do i = 1, 3
+         read(72, *) (foursplines(k,i,j), j=1, 4)
+      end do
+      read(72, *) fourlimits(k,1), fourlimits(k,2)
+      end do
+
+      close(72)
+      end
+
+c----------------------------------------------------------------------
+      subroutine coons_patch(foursplines, fourlimits, u, v, p, x,y,z)
+
+      implicit none
+      real foursplines(4,3,4)
+      real fourlimits(4,2)
+      real u, v, p(3)
+      real x,y,z
+      real u_min, u_max, v_min, v_max
+      real Cu(3), Cv(3), B(3)
+      real eval_spline
+      integer i
+      
+      do i = 1, 3
+         Cu(i) = eval_spline(foursplines(1,i,:), u, 
+     $                fourlimits(1,1), fourlimits(1,2)) * (1-v) +
+     $           eval_spline(foursplines(3,i,:), u,
+     $                fourlimits(3,1), fourlimits(3,2)) * v
+         Cv(i) = eval_spline(foursplines(2,i,:), v, 
+     $                fourlimits(2,1), fourlimits(2,2)) * u +
+     $           eval_spline(foursplines(4,i,:), v,
+     $                fourlimits(4,1), fourlimits(4,2)) * (1-u)
+      end do
+      
+      p(1) = Cu(1)/1000 + Cv(1)/1000 - x
+      p(2) = Cu(2)/1000 + Cv(2)/1000 - y
+      p(3) = Cu(3)/1000 + Cv(3)/1000 - z
+      
+      return
+      end
+c----------------------------------------------------------------------
+      function eval_spline(coeffs, t, t_min, t_max)
+      implicit none
+      real coeffs(4), t, t_min, t_max, eval_spline
+      real dt, s
+      
+      dt = t_max - t_min
+      s = t*dt
+      eval_spline = coeffs(1) * s**3 + coeffs(2) * s**2 +
+     &              coeffs(3) * s + coeffs(4)
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine laplaceh(name,u,h1,h2,mask,mult,ifld
+     $                   ,tli,maxi,approx,napprox)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'CTIMER'
+
+
+      common  /cprint/ ifprint, ifhzpc
+      logical          ifprint, ifhzpc
+
+      character*4 name
+      real u(1),h1(1),h2(1),mask(1),mult(1),approx (1)
+      integer   napprox(1)
+
+      parameter (lt=lx1*ly1*lz1*lelt)
+      common /scruz/ r (lt),ub(lt)
+
+      logical ifstdh
+      character*4  cname
+      character*6  name6
+
+      logical ifwt,ifvec
+
+      call chcopy(cname,name,4)
+      call capit (cname,4)
+
+      call blank (name6,6)
+      call chcopy(name6,name,4)
+      ifwt  = .true.
+      ifvec = .false.
+      isd   = 1
+      imsh  = 1
+      nel   = nelfld(ifld)
+
+      n = nx1*ny1*nz1*nel
+
+      call copy (ub,u,n)             ! ub = u on boundary
+      call dsavg(ub)                 ! Make certain ub is in H1
+                                     !     _
+      call axhelm (r,ub,h1,h2,1,1)   ! r = A*ub
+
+      do i=1,n                       !        _
+         r(i)=-r(i)*mask(i)          ! r = -M*A*ub
+      enddo
+
+      call dssum  (r,nx1,ny1,nz1)    ! dssum rhs
+
+      call project1
+     $     (r,n,approx,napprox,h1,h2,mask,mult,ifwt,ifvec,name6)
+
+
+      ifprint = .false.               ! Make Helmholtz
+      param(74) = 1                  ! verbose
+
+      tol = abs(tli)
+      p22=param(22)
+      param(22)=abs(tol)
+      if (nio.eq.0) write(6,*) 'Calling hmhzpf ',name
+      if (nel.eq.nelv) then
+        call hmhzpf (name,u,r,h1,h2,mask,mult,imsh,tol,maxi,isd,binvm1)
+      else
+        call hmhzpf (name,u,r,h1,h2,mask,mult,imsh,tol,maxi,isd,bintm1)
+      endif
+      param(22)=p22
+
+      call project2
+     $     (u,n,approx,napprox,h1,h2,mask,mult,ifwt,ifvec,name6)
+
+      call add2(u,ub,n)
+
+      return
+      end

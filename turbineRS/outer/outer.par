@@ -1,8 +1,8 @@
 [GENERAL]
-polynomialOrder = 5
+polynomialOrder = 3
 #startFrom = "restart.fld"
 numSteps = 100
-dt = 1e-04
+dt = 1e-06
 timeStepper = tombo2
 writeInterval = 10
 udf = "../turbine.udf"
@@ -18,8 +18,12 @@ residualTol = 1e-12
 density = 1.0
 viscosity = 0.05
 
+[MESH]
+solver=user
+file = "outer.re2"
+
 [SCALAR00]
 solver = none
 
 [CASEDATA]
-P_OMEGA = 0.375
+P_OMEGA = 0.0

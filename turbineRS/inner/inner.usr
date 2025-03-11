@@ -81,27 +81,6 @@ c     NOTE ::: This subroutine MAY NOT be called by every process
      $              , umeshz(lx1,ly1,lz1,lelt)
 
 
-      ie = gllel(ieg)
-
-      bccv = cbc(iside,ie,1)
-      temp=0.0
-
-      if (imask(ix,iy,iz,ie).eq.0) then
-        ux = 0.0
-        uy = 0.0
-        uz = -1.0 ! If -1 testing inner blade, else 0
-        uz = 0.0
-        if (bccv.eq.'mv ') then
-          ux = umeshx(ix,iy,iz,ie)
-          uy = umeshy(ix,iy,iz,ie)
-          uz = umeshz(ix,iy,iz,ie)
-        endif
-      else
-        ux = valint(ix,iy,iz,ie,1)
-        uy = valint(ix,iy,iz,ie,2)
-        uz = valint(ix,iy,iz,ie,3)
-      endif
-      return
       end
 c-----------------------------------------------------------------------
       subroutine useric (ix,iy,iz,ieg)
@@ -128,11 +107,7 @@ c-----------------------------------------------------------------------
       include 'SIZE'
       include 'CASEDATA'
 
-      !call nekrs_registerPtr('p_u0', P_U0)
-      !call nekrs_registerPtr('p_v0', P_V0)
       call nekrs_registerPtr('p_omega', P_OMEGA)
-      !call nekrs_registerPtr('p_visc', P_VISC)
-      !call nekrs_registerPtr('p_scale', P_SCALE)
 
       return
       end
@@ -157,7 +132,7 @@ C=======================================================================
      $                xd1(lx1,ly1,lz1,lelt),yd1(lx1,ly1,lz1,lelt),
      $                zd1(lx1,ly1,lz1,lelt),
      $                mask(lx1,ly1,lz1,lelt)
-      common /myothr/ h1(lt),h2(lt),work(lt)
+      common /myothr/ h1(lt),h2(lt),work(lt, mxprev)
       logical cbc_mask, file_exists
 
       real foursplines(4,3,4)
@@ -208,10 +183,10 @@ C=======================================================================
       call izero(napprox,2)
       
       nface = 2*ldim
-      param(59) = 1
-      ifxyo = .true.
-      ifmvbd    = .true.
-      ifusermv = .true.
+c      param(59) = 1
+c      ifxyo = .true.
+c      ifmvbd    = .true.
+c      ifusermv = .true.
 
       do e=1,nelv
       do f=1,nface

@@ -74,18 +74,18 @@ c     NOTE ::: This subroutine MAY NOT be called by every process
 
       ie = gllel(ieg)
 
-      bccv = cbc(iside,ie,1)
-      temp=0.0
-
-      if (imask(ix,iy,iz,ie).eq.0) then
-          ux = 0.0
-          uy = 0.0
-          uz = -1
-      else
-        ux = valint(ix,iy,iz,ie,1)
-        uy = valint(ix,iy,iz,ie,2)
-        uz = valint(ix,iy,iz,ie,3)
-      endif
+c      bccv = cbc(iside,ie,1)
+c      temp=0.0
+c
+c      if (imask(ix,iy,iz,ie).eq.0) then
+c          ux = 0.0
+c          uy = 0.0
+c          uz = -1
+c      else
+c        ux = valint(ix,iy,iz,ie,1)
+c        uy = valint(ix,iy,iz,ie,2)
+c        uz = valint(ix,iy,iz,ie,3)
+c      endif
       return
       end
 c-----------------------------------------------------------------------
@@ -142,7 +142,7 @@ C=======================================================================
      $                xd1(lx1,ly1,lz1,lelt),yd1(lx1,ly1,lz1,lelt),
      $                zd1(lx1,ly1,lz1,lelt),
      $                mask(lx1,ly1,lz1,lelt)
-      common /myothr/ h1(lt),h2(lt),work(lt)
+      common /myothr/ h1(lt),h2(lt),work(lt, mxprev)
       logical cbc_mask, file_exists
 
       real foursplines(4,3,4)

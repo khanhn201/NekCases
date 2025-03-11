@@ -11,8 +11,8 @@ static dfloat P_OMEGA;
 void codedFixedValueVelocity(bcData *bc)
 {
   if (bc->id == 5) {// Int Boundaries
-      bc->u = bc->uinterp;
-      bc->v = bc->vinterp;
+      bc->u = bc->uinterp - p_omega * bc->y;
+      bc->v = bc->vinterp + p_omega * bc->x;
       bc->w = bc->winterp;
   }
   if (bc->id == 3) {// v Boundaries
@@ -20,19 +20,25 @@ void codedFixedValueVelocity(bcData *bc)
       bc->v = 0.0;
       bc->w = -1.0;
   }
+  if (bc->id == 1) {// mv Boundaries
+      bc->u = p_omega * bc->y;
+      bc->v = -p_omega * bc->x;
+      bc->w = 0.0;
+  }
 }
 
-// void codedFixedValueScalar(bcData *bc)
-// {
-// 
-// }
-
-
-void meshVelocityDirichletConditions(bcData *bc)
+@kernel void userMeshVelocity(const dlong Ntotal,
+                              const dlong offset,
+                              @ restrict const dfloat *x,
+                              @ restrict const dfloat *y,
+                              @ restrict const dfloat *z,
+                              @ restrict dfloat *W)
 {
-    bc->meshu = p_omega * bc->y;
-    bc->meshv = -p_omega * bc->x;
-    bc->meshw = 0.0;
+  for (dlong n = 0; n < Ntotal; ++n; @tile(p_blockSize, @outer, @inner)) {
+    W[n + 0 * offset] = p_omega * y[n];
+    W[n + 1 * offset] = -p_omega * x[n];
+    W[n + 2 * offset] = 0.0;
+  }
 }
 
 #endif
@@ -58,7 +64,8 @@ void UDF_Setup()
 
 void UDF_ExecuteStep(double time, int tstep)
 {
-  auto mesh = nrs->mesh;
+  auto *mesh = nrs->meshV;
+  userMeshVelocity(mesh->Nlocal, nrs->fieldOffset, mesh->o_x, mesh->o_y, mesh->o_z, mesh->o_U);
   
   /*if (nrs->checkpointStep) {*/
   /*  nrs->copyToNek(time, tstep);*/

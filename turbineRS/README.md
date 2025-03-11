@@ -13,3 +13,5 @@
 - 'O  ': 4
 - 'int': 5
 
+# Run
+`nohup mpiexec -np 2 nekrs --setup turbine.sess > logfile 2>&1 &`

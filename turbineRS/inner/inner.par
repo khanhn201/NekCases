@@ -1,10 +1,10 @@
 [GENERAL]
 polynomialOrder = 3
 #startFrom = "restart.fld"
-numSteps = 100
+numSteps = 10000
 dt = 1e-06
 timeStepper = tombo2
-writeInterval = 10
+writeInterval = 100
 udf = "../turbine.udf"
 
 [NEKNEK]
@@ -17,6 +17,7 @@ residualTol = 1e-08
 residualTol = 1e-12
 density = 1.0
 viscosity = 0.05
+boundaryTypeMap = interpolation, codedFixedValue
 
 [MESH]
 solver=user

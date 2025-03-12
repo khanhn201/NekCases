@@ -1,35 +1,4 @@
 c-----------------------------------------------------------------------
-      subroutine uservp (ix,iy,iz,ieg)
-      include 'SIZE'
-      include 'TOTAL'
-      include 'NEKUSE'
-C
-      udiff =0.
-      utrans=0.
-      return
-      end
-c-----------------------------------------------------------------------
-      subroutine userf  (ix,iy,iz,ieg)
-      include 'SIZE'
-      include 'TOTAL'
-      include 'NEKUSE'
-C
-      ffx = 0.0
-      ffy = 0.0
-      ffz = 0.0
-      return
-      end
-c-----------------------------------------------------------------------
-      subroutine userq  (ix,iy,iz,ieg)
-      include 'SIZE'
-      include 'TOTAL'
-      include 'NEKUSE'
-C
-      qvol   = 0.0
-      source = 0.0
-      return
-      end
-c-----------------------------------------------------------------------
       subroutine userchk
       include 'SIZE'  
       include 'TOTAL' 
@@ -53,39 +22,6 @@ c-----------------------------------------------------------------------
       !  t(i,1,1,1,1)= log(t(i,1,1,1,1))
       !enddo
       !
-      return
-      end
-c-----------------------------------------------------------------------
-      subroutine userbc (ix,iy,iz,iside,ieg)
-c     NOTE ::: This subroutine MAY NOT be called by every process
-
-
-      include 'SIZE'
-      include 'TOTAL'
-      include 'NEKUSE'
-      include 'NEKNEK'
-
-
-      character*3 bccv
-      common /c_mybc/ umeshx(lx1,ly1,lz1,lelt)
-     $              , umeshy(lx1,ly1,lz1,lelt)
-     $              , umeshz(lx1,ly1,lz1,lelt)
-
-
-      ie = gllel(ieg)
-
-c      bccv = cbc(iside,ie,1)
-c      temp=0.0
-c
-c      if (imask(ix,iy,iz,ie).eq.0) then
-c          ux = 0.0
-c          uy = 0.0
-c          uz = -1
-c      else
-c        ux = valint(ix,iy,iz,ie,1)
-c        uy = valint(ix,iy,iz,ie,2)
-c        uz = valint(ix,iy,iz,ie,3)
-c      endif
       return
       end
 c-----------------------------------------------------------------------
@@ -113,19 +49,7 @@ c-----------------------------------------------------------------------
       include 'SIZE'
       include 'CASEDATA'
 
-      !call nekrs_registerPtr('p_u0', P_U0)
-      !call nekrs_registerPtr('p_v0', P_V0)
       call nekrs_registerPtr('p_omega', P_OMEGA)
-      !call nekrs_registerPtr('p_visc', P_VISC)
-      !call nekrs_registerPtr('p_scale', P_SCALE)
-
-      return
-      end
-c-----------------------------------------------------------------------
-      subroutine usrdat
-      include 'SIZE'
-      include 'TOTAL'
-      include 'NEKNEK'
 
       return
       end
@@ -323,28 +247,21 @@ c     call exitti('quit usrdat2$',n)
 
       do iel=1,nelt
       do ifc=1,2*ndim
-         if (cbc(ifc,iel,1) .eq. 'mv ') then
+         if (cbc(ifc,iel,1) .eq. 'int') then
            boundaryID(ifc,iel) = 1
          endif
-         if (cbc(ifc,iel,1) .eq. 'W  ') then
+         if (cbc(ifc,iel,1) .eq. 'O  ') then
            boundaryID(ifc,iel) = 2
          endif
          if (cbc(ifc,iel,1) .eq. 'v  ') then
            boundaryID(ifc,iel) = 3
          endif
-         if (cbc(ifc,iel,1) .eq. 'O  ') then
+         if (cbc(ifc,iel,1) .eq. 'W  ') then
            boundaryID(ifc,iel) = 4
-         endif
-         if (cbc(ifc,iel,1) .eq. 'int') then
-           boundaryID(ifc,iel) = 5
          endif
       enddo
       enddo
 
-      return
-      end
-c----------------------------------------------------------------------
-      subroutine usrdat3
       return
       end
 c----------------------------------------------------------------------

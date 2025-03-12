@@ -10,20 +10,20 @@ static dfloat P_OMEGA;
 // Boundary conditions
 void codedFixedValueVelocity(bcData *bc)
 {
-  if (bc->id == 5) {// Int Boundaries
-      bc->u = bc->uinterp - p_omega * bc->y;
-      bc->v = bc->vinterp + p_omega * bc->x;
+  if (bc->id == 1) {// Int Boundaries
+      bc->u = bc->uinterp;
+      bc->v = bc->vinterp;
       bc->w = bc->winterp;
+  }
+  if (bc->id == 2) {// mv Boundaries
+      bc->u = p_omega * bc->y;
+      bc->v = -p_omega * bc->x;
+      bc->w = 0.0;
   }
   if (bc->id == 3) {// v Boundaries
       bc->u = 0.0;
       bc->v = 0.0;
       bc->w = -1.0;
-  }
-  if (bc->id == 1) {// mv Boundaries
-      bc->u = p_omega * bc->y;
-      bc->v = -p_omega * bc->x;
-      bc->w = 0.0;
   }
 }
 

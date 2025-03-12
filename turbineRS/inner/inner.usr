@@ -1,35 +1,4 @@
 c-----------------------------------------------------------------------
-      subroutine uservp (ix,iy,iz,ieg)
-      include 'SIZE'
-      include 'TOTAL'
-      include 'NEKUSE'
-C
-      udiff =0.
-      utrans=0.
-      return
-      end
-c-----------------------------------------------------------------------
-      subroutine userf  (ix,iy,iz,ieg)
-      include 'SIZE'
-      include 'TOTAL'
-      include 'NEKUSE'
-C
-      ffx = 0.0
-      ffy = 0.0
-      ffz = 0.0
-      return
-      end
-c-----------------------------------------------------------------------
-      subroutine userq  (ix,iy,iz,ieg)
-      include 'SIZE'
-      include 'TOTAL'
-      include 'NEKUSE'
-C
-      qvol   = 0.0
-      source = 0.0
-      return
-      end
-c-----------------------------------------------------------------------
       subroutine userchk
       include 'SIZE'  
       include 'TOTAL' 
@@ -57,30 +26,12 @@ c-----------------------------------------------------------------------
       !!ifusermv = .true.
       !!if (ifusermv) call my_meshv
       !if (istep.eq.0) then
-      !   bIDs(1) = 1
+      !   bIDs(1) = 2
       !   call create_obj(iobj_wall(1),bIDs,1)
       !endif
       !call torque_calc(1.0,x0,.true.,.true.)
 
       return
-      end
-c-----------------------------------------------------------------------
-      subroutine userbc (ix,iy,iz,iside,ieg)
-c     NOTE ::: This subroutine MAY NOT be called by every process
-
-
-      include 'SIZE'
-      include 'TOTAL'
-      include 'NEKUSE'
-      include 'NEKNEK'
-
-
-      character*3 bccv
-      common /c_mybc/ umeshx(lx1,ly1,lz1,lelt)
-     $              , umeshy(lx1,ly1,lz1,lelt)
-     $              , umeshz(lx1,ly1,lz1,lelt)
-
-
       end
 c-----------------------------------------------------------------------
       subroutine useric (ix,iy,iz,ieg)
@@ -108,14 +59,6 @@ c-----------------------------------------------------------------------
       include 'CASEDATA'
 
       call nekrs_registerPtr('p_omega', P_OMEGA)
-
-      return
-      end
-c-----------------------------------------------------------------------
-      subroutine usrdat
-      include 'SIZE'
-      include 'TOTAL'
-      include 'NEKNEK'
 
       return
       end
@@ -270,7 +213,6 @@ c      ifusermv = .true.
          do iface = 1, nface
             if (cbc(iface,iel,1) .eq. 'W  ') then
                cbc(iface,iel,1) = 'mv '
-               boundaryID(iface,iel) = 1
             endif
 c     If only testing inner blade
 c           if (cbc(iface,iel,1) .eq. 'int') then
@@ -357,28 +299,15 @@ c     call exitti('quit usrdat2$',n)
 
       do iel=1,nelt
       do ifc=1,2*ndim
-         if (cbc(ifc,iel,1) .eq. 'mv ') then
+         if (cbc(ifc,iel,1) .eq. 'int') then
            boundaryID(ifc,iel) = 1
          endif
-         if (cbc(ifc,iel,1) .eq. 'W  ') then
+         if (cbc(ifc,iel,1) .eq. 'mv ') then
            boundaryID(ifc,iel) = 2
-         endif
-         if (cbc(ifc,iel,1) .eq. 'v  ') then
-           boundaryID(ifc,iel) = 3
-         endif
-         if (cbc(ifc,iel,1) .eq. 'O  ') then
-           boundaryID(ifc,iel) = 4
-         endif
-         if (cbc(ifc,iel,1) .eq. 'int') then
-           boundaryID(ifc,iel) = 5
          endif
       enddo
       enddo
 
-      return
-      end
-c----------------------------------------------------------------------
-      subroutine usrdat3
       return
       end
 c----------------------------------------------------------------------

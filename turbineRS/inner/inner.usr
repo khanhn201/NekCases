@@ -4,32 +4,34 @@ c-----------------------------------------------------------------------
       include 'TOTAL' 
       include 'NEKNEK'
 
-      !real x0(3)
-      !save x0
-      !data x0 /3*0/
-      !
-      !integer bIDs(1), iobj_wall(1)
-      !
-      !call nekgsync
-      !ifpsco(1)=.true.
-      !ifto=.true.
-      !call lambda2(t(1,1,1,1,2)) ! Put lambda2 --> passive scalar 2
-      !
-      !n = lx1*ly1*lz1*nelt
-      !call compute_cfl(cfl,vx,vy,vz,dt)
-      !call copy(t, cflf, n)
-      !do i=1,n
-      !  t(i,1,1,1,1)= log(t(i,1,1,1,1))
-      !enddo
-      !
-      !! Turbine inner
-      !!ifusermv = .true.
-      !!if (ifusermv) call my_meshv
-      !if (istep.eq.0) then
-      !   bIDs(1) = 2
-      !   call create_obj(iobj_wall(1),bIDs,1)
-      !endif
-      !call torque_calc(1.0,x0,.true.,.true.)
+      real x0(3)
+      save x0
+      data x0 /3*0/
+      
+      integer bIDs(1), iobj_wall(1)
+      
+      call nekgsync
+c     ifpsco(1)=.true.
+c     ifto=.true.
+      call lambda2(t(1,1,1,1,1)) ! Put lambda2 --> passive scalar 1
+      
+      n = lx1*ly1*lz1*nelt
+c     call compute_cfl(cfl,vx,vy,vz,dt)
+c     call copy(t, cflf, n)
+c     do i=1,n
+c       t(i,1,1,1,1)= log(t(i,1,1,1,1))
+c     enddo
+c     do e=1,nelt
+c       rid = nid
+c       call cfill(t(1,1,1,e,1),nid, )
+c     enddo
+      
+      ! Turbine inner
+      if (istep.eq.0) then
+         bIDs(1) = 2
+         call create_obj(iobj_wall(1),bIDs,1)
+      endif
+      call torque_calc(1.0,x0,.true.,.true.)
 
       return
       end
@@ -62,6 +64,15 @@ c-----------------------------------------------------------------------
 
       return
       end
+c-----------------------------------------------------------------------
+      subroutine usrdat3
+      include 'SIZE'
+      include 'TOTAL'
+
+      ifto = .true. ! required to lambda2
+ 
+      return
+      end
 C=======================================================================
       subroutine usrdat2
       include 'SIZE'
@@ -70,11 +81,13 @@ C=======================================================================
 
       parameter (lt=lx1*ly1*lz1*lelt)
       real mask
+      integer partition_map
       common /mydiff/ xd(lx1,ly1,lz1,lelt),yd(lx1,ly1,lz1,lelt),
      $                zd(lx1,ly1,lz1,lelt),
      $                xd1(lx1,ly1,lz1,lelt),yd1(lx1,ly1,lz1,lelt),
      $                zd1(lx1,ly1,lz1,lelt),
-     $                mask(lx1,ly1,lz1,lelt)
+     $                mask(lx1,ly1,lz1,lelt),
+     $                partition_map(lx1,ly1,lz1,lelt)
       common /myothr/ h1(lt),h2(lt),work(lt, mxprev)
       logical cbc_mask, file_exists
 
@@ -84,6 +97,7 @@ C=======================================================================
       real lpoints(4,3)
 
       integer e,eg,f,napprox(2)
+      dimension workd(4)
       character*80 filename
 
 
@@ -126,24 +140,37 @@ C=======================================================================
       call izero(napprox,2)
       
       nface = 2*ldim
-c      param(59) = 1
-c      ifxyo = .true.
-c      ifmvbd    = .true.
-c      ifusermv = .true.
 
       do e=1,nelv
-      do f=1,nface
-
-         cbc_mask = .false.
-         if (cbc(f,e,1).eq.'int') cbc_mask = .true.
-         if (cbc(f,e,1).eq.'W  ') cbc_mask = .true.
-         if (cbc(f,e,1).eq.'v  ') cbc_mask = .true.
-         if (cbc(f,e,1).eq.'O  ') cbc_mask = .true.
-         if (cbc(f,e,1).eq.'SYM') cbc_mask = .true.
-
-         if (cbc_mask) then         ! On interpolated surface
-            if (cbc(f,e,1).eq.'int'.or.cbc(f,e,1).eq.'W  ') then ! On rim or blade
-               call facind(i0,i1,j0,j1,k0,k1,lx1,ly1,lz1,f)
+        eg = lglel(e)
+        do f=1,nface
+  
+           cbc_mask = .false.
+           if (cbc(f,e,1).eq.'int') cbc_mask = .true.
+           if (cbc(f,e,1).eq.'W  ') cbc_mask = .true.
+           if (cbc(f,e,1).eq.'v  ') cbc_mask = .true.
+           if (cbc(f,e,1).eq.'O  ') cbc_mask = .true.
+           if (cbc(f,e,1).eq.'SYM') cbc_mask = .true.
+  
+           if (cbc_mask) then         ! On interpolated surface
+c             if (cbc(f,e,1).eq.'int'.or.cbc(f,e,1).eq.'W  ') then ! On rim or blade
+              if (cbc(f,e,1).eq.'int') then ! On rim
+                 call facind(i0,i1,j0,j1,k0,k1,lx1,ly1,lz1,f)
+                 do k=k0,k1
+                 do j=j0,j1
+                 do i=i0,i1
+                    mask(i,j,k,e) = 0.0
+                 enddo
+                 enddo
+                 enddo
+              endif
+           endif
+        enddo
+        write(filename, '(A, I8.8, A)') 'surfaces/surface', 
+     $             eg, '.txt'
+        inquire(file=filename, exist=file_exists)
+        if (file_exists) then ! Has surface data
+               call facind(i0,i1,j0,j1,k0,k1,lx1,ly1,lz1,3)
                do k=k0,k1
                do j=j0,j1
                do i=i0,i1
@@ -151,33 +178,28 @@ c      ifusermv = .true.
                enddo
                enddo
                enddo
-            endif
-         endif
-      enddo
+        endif
       enddo
       call dsop(mask,'*  ',lx1,ly1,lz1)  ! zero mask for any surface vertex
+c     call outpost(xd,yd,zd,pr,mask,'   ')
 
       rad_target = glamax(xm1,n)
       rad_thresh = 5.2
       z_thresh = 0.2
 
+      call facind(i0,i1,j0,j1,k0,k1,lx1,ly1,lz1,3)
       do e=1,nelv
-      do k=1,lz1
-      do j=1,ly1
-      do i=1,lx1
+      do k=k0,k1
+      do j=j0,j1
+      do i=i0,i1
          eg = lglel(e)
          x = xm1(i,j,k,e)
          y = ym1(i,j,k,e)
          z = zm1(i,j,k,e)
          rad_loc = sqrt(x*x + y*y)
-         if (mask(i,j,k,e).eq.0.and.rad_loc.gt.rad_thresh) then ! On rim
-              xt = (rad_target/rad_loc)*x
-              yt = (rad_target/rad_loc)*y
-              xd(i,j,k,e) = xt - xm1(i,j,k,e)
-              yd(i,j,k,e) = yt - ym1(i,j,k,e)
-         endif
-         if (mask(i,j,k,e).eq.0.and.rad_loc.lt.rad_thresh
-     $         .and.abs(z).lt.z_thresh) then ! On blade
+c        if (mask(i,j,k,e).eq.0.and.rad_loc.lt.rad_thresh
+c    $         .and.abs(z).lt.z_thresh) then
+         if (mask(i,j,k,e).eq.0) then ! On blade
               write(filename, '(A, I8.8, A)') 'surfaces/surface', 
      $             eg, '.txt'
               inquire(file=filename, exist=file_exists)
@@ -187,6 +209,10 @@ c      ifusermv = .true.
                  lpoints(2,1) = xm1(lx1,ly1,1,e)
                  lpoints(3,1) = xm1(lx1,ly1,lz1,e)
                  lpoints(4,1) = xm1(1,ly1,lz1,e)
+                 lpoints(1,2) = xm2(1,ly1,1,e)
+                 lpoints(2,2) = xm2(lx1,ly1,1,e)
+                 lpoints(3,2) = xm2(lx1,ly1,lz1,e)
+                 lpoints(4,2) = xm2(1,ly1,lz1,e)
                  lpoints(1,3) = zm1(1,ly1,1,e)
                  lpoints(2,3) = zm1(lx1,ly1,1,e)
                  lpoints(3,3) = zm1(lx1,ly1,lz1,e)
@@ -194,10 +220,24 @@ c      ifusermv = .true.
                  
                  v = (x-lpoints(1,1))/
      $               (lpoints(4,1) - lpoints(1,1))
-                 u = z - (1-v)*lpoints(1,3) - v*lpoints(4,3)
-                 u = u/(-(1-v)*lpoints(1,3)+ (1-v)*lpoints(2,3)
-     $                - v*lpoints(4,3) + v*lpoints(3,3))
-                 u = 1-u
+c                u = z - (1-v)*lpoints(1,3) - v*lpoints(4,3)
+c                u = u/(-(1-v)*lpoints(1,3)+ (1-v)*lpoints(2,3)
+c    $                - v*lpoints(4,3) + v*lpoints(3,3))
+c                u = 1-u
+                 z1 = (1-v)*lpoints(1,3) + v*lpoints(4,3)
+                 z2 = (1-v)*lpoints(2,3) + v*lpoints(3,3)
+                 if (z1.eq.z2) then
+                   z1 = (1-v)*lpoints(1,2) + v*lpoints(4,2)
+                   z2 = (1-v)*lpoints(2,2) + v*lpoints(3,2)
+                 endif
+                 u = 1.0 - (z-z1)/
+     $               (z2-z1)
+                 if ((u.lt.-0.1).or.(u.gt.1.1)) then
+			 write(6,*) 'u', u
+                 endif
+                 if ((v.lt.-0.1).or.(v.gt.1.1)) then
+			 write(6,*) 'v', v
+                 endif
                  call coons_patch(foursplines,fourlimits,u,v,pc,x,y,z)
                  xd(i,j,k,e) = pc(1) - x
                  yd(i,j,k,e) = pc(2) - y
@@ -208,34 +248,67 @@ c      ifusermv = .true.
       enddo
       enddo
       enddo
+      do e=1,nelv
+        eg = lglel(e)
+        do f=1,nface
+              if (cbc(f,e,1).eq.'int') then ! On rim
+                 call facind(i0,i1,j0,j1,k0,k1,lx1,ly1,lz1,f)
+                 do k=k0,k1
+                 do j=j0,j1
+                 do i=i0,i1
+			 x = xm1(i,j,k,e)
+			 y = ym1(i,j,k,e)
+			 z = zm1(i,j,k,e)
+			 rad_loc = sqrt(x*x + y*y)
+			 xt = (rad_target/rad_loc)*x
+			 yt = (rad_target/rad_loc)*y
+			 xd(i,j,k,e) = xt - xm1(i,j,k,e)
+		         yd(i,j,k,e) = yt - ym1(i,j,k,e)
+                 enddo
+                 enddo
+                 enddo
+              endif
+        enddo
+      enddo
+      
+      do k=1,n
+        xd1(k,1,1,1) = min(xd(k,1,1,1), 0.0)
+        yd1(k,1,1,1) = min(yd(k,1,1,1), 0.0)
+        zd1(k,1,1,1) = min(zd(k,1,1,1), 0.0)
+      enddo
+      do k=1,n
+        xd(k,1,1,1) = max(xd(k,1,1,1), 0.0)
+        yd(k,1,1,1) = max(yd(k,1,1,1), 0.0)
+        zd(k,1,1,1) = max(zd(k,1,1,1), 0.0)
+      enddo
 
-      do iel=1,nelt
-         do iface = 1, nface
-            if (cbc(iface,iel,1) .eq. 'W  ') then
-               cbc(iface,iel,1) = 'mv '
-            endif
-c     If only testing inner blade
-c           if (cbc(iface,iel,1) .eq. 'int') then
-c              cbc(iface,iel,1) = 'v  '
-c           endif
-c     Else
-            if (cbc(iface,iel,1) .eq. 'v  ') then
-               cbc(iface,iel,1) = 'int'
-            endif
-            if (cbc(iface,iel,1) .eq. 'O  ') then
-               cbc(iface,iel,1) = 'int'
-            endif
-         enddo 
+      call dsop(xd1,'min',lx1,ly1,lz1)
+      call dsop(xd,'max',lx1,ly1,lz1)
+      call dsop(yd1,'min',lx1,ly1,lz1)
+      call dsop(yd,'max',lx1,ly1,lz1)
+      call dsop(zd1,'min',lx1,ly1,lz1)
+      call dsop(zd,'max',lx1,ly1,lz1)
+
+      do k=1,n
+        xd(k,1,1,1) = xd(k,1,1,1) + xd1(k,1,1,1)
+        yd(k,1,1,1) = yd(k,1,1,1) + yd1(k,1,1,1)
+        zd(k,1,1,1) = zd(k,1,1,1) + zd1(k,1,1,1)
       enddo
 
 
 
-c     call outpost(xd,yd,zd,pr,t,'   ')
+
+c     call outpost(xd,yd,zd,bm1,mask,'   ')
+c     call add2(xm1,xd,n)
+c     call add2(ym1,yd,n)
+c     call add2(zm1,zd,n)
+c     call outpost(xd,yd,zd,bm1,t,'   ')
+c     call fix_geom !Reblend surface elements that have been projected
 
       alpha = 0.01
       tol     = 1.e-7
-      maxit   = 250
-      factor = 0.2
+      maxit   = 800
+      factor = 0.1
       lapit = 10
       do k=1,lapit
         call cheap_dist(dd1,1,'mv ')
@@ -247,6 +320,10 @@ c     call outpost(xd,yd,zd,pr,t,'   ')
         do j=1,lx1*ly1*lz1*nelv
            dd1(j) = min(dd1(j),dd2(j))
         enddo
+c       call cheap_dist(dd2,1,'s  ')
+c       do j=1,lx1*ly1*lz1*nelv
+c          dd1(j) = min(dd1(j),dd2(j))
+c       enddo
         call cheap_dist(dd2,1,'W  ')
         do j=1,lx1*ly1*lz1*nelv
            dd1(j) = min(dd1(j),dd2(j))
@@ -263,10 +340,10 @@ c     call outpost(xd,yd,zd,pr,t,'   ')
         do i=1,lx1*ly1*lz1*nelv
            h1(i) = 1+ 9*EXP(-dd1(i)/alpha)
         enddo
-
         if (k.eq.lapit) then
            factor = 1
         endif
+        factor = 1.0/lapit
         do j=1,lx1*ly1*lz1*nelv
            xd1(j,1,1,1) = xd(j,1,1,1)*factor
            yd1(j,1,1,1) = yd(j,1,1,1)*factor
@@ -280,22 +357,45 @@ c     call outpost(xd,yd,zd,pr,t,'   ')
      $                ,tol,maxit,work,napprox)
 
 
+c       call outpost(xd1,yd1,zd1,bm1,h1,'   ')
         call add2(xm1,xd1,n)
         call add2(ym1,yd1,n)
         call add2(zm1,zd1,n)
-c       call outpost(xd1,yd1,zd1,pr,h1,'   ')
+c       call outpost(xd1,yd1,zd1,bm1,h1,'   ')
         call fix_geom !Reblend surface elements that have been projected
-        do j=1,lx1*ly1*lz1*nelv
-           xd(j,1,1,1) = xd(j,1,1,1)*(1-factor)
-           yd(j,1,1,1) = yd(j,1,1,1)*(1-factor)
-           zd(j,1,1,1) = zd(j,1,1,1)*(1-factor)
-        enddo
+        if (nio.eq.0) write(6,*) 'Done project ', k, '/', lapit
+c       do j=1,lx1*ly1*lz1*nelv
+c          xd(j,1,1,1) = xd(j,1,1,1)*(1-factor)
+c          yd(j,1,1,1) = yd(j,1,1,1)*(1-factor)
+c          zd(j,1,1,1) = zd(j,1,1,1)*(1-factor)
+c       enddo
       end do
 
 
 c     call exitti('quit usrdat2$',n)
 
 
+      do iel=1,nelt
+         do iface = 1, nface
+            if (cbc(iface,iel,1) .eq. 'W  ') then
+               cbc(iface,iel,1) = 'mv '
+            endif
+c           if (cbc(iface,iel,1) .eq. 's  ') then
+c              cbc(iface,iel,1) = 'E  '
+c           endif
+c     If only testing inner blade
+c           if (cbc(iface,iel,1) .eq. 'int') then
+c              cbc(iface,iel,1) = 'v  '
+c           endif
+c     Else
+            if (cbc(iface,iel,1) .eq. 'v  ') then
+               cbc(iface,iel,1) = 'int'
+            endif
+            if (cbc(iface,iel,1) .eq. 'O  ') then
+               cbc(iface,iel,1) = 'int'
+            endif
+         enddo 
+      enddo
 
       do iel=1,nelt
       do ifc=1,2*ndim
@@ -307,6 +407,12 @@ c     call exitti('quit usrdat2$',n)
          endif
       enddo
       enddo
+
+      call rzero(partition_map,n)
+      do e=1,n
+         partition_map(e,1,1,1) = nid
+      enddo
+      call outpost(xd1,yd1,zd1,nid,nid,'nid')
 
       return
       end

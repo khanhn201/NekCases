@@ -4,24 +4,18 @@ c-----------------------------------------------------------------------
       include 'TOTAL' 
       include 'NEKNEK'
 
-      !real x0(3)
-      !save x0
-      !data x0 /3*0/
-      !
-      !integer bIDs(1), iobj_wall(1)
-
-      !call nekgsync
-      !ifpsco(1)=.true.
-      !ifto=.true.
-      !call lambda2(t(1,1,1,1,2)) ! Put lambda2 --> passive scalar 2
-      !
-      !n = lx1*ly1*lz1*nelt
-      !call compute_cfl(cfl,vx,vy,vz,dt)
-      !call copy(t, cflf, n)
-      !do i=1,n
-      !  t(i,1,1,1,1)= log(t(i,1,1,1,1))
-      !enddo
-      !
+      call nekgsync
+c     ifpsco(1)=.true.
+c     ifto=.true.
+      call lambda2(t(1,1,1,1,1)) ! Put lambda2 --> passive scalar 1
+      
+      n = lx1*ly1*lz1*nelt
+c     call compute_cfl(cfl,vx,vy,vz,dt)
+c     call copy(t, cflf, n)
+c     do i=1,n
+c       t(i,1,1,1,1)= log(t(i,1,1,1,1))
+c     enddo
+      
       return
       end
 c-----------------------------------------------------------------------
@@ -53,6 +47,15 @@ c-----------------------------------------------------------------------
 
       return
       end
+c-----------------------------------------------------------------------
+      subroutine usrdat3
+      include 'SIZE'
+      include 'TOTAL'
+
+      ifto = .true. ! required to lambda2
+ 
+      return
+      end
 C=======================================================================
       subroutine usrdat2
       include 'SIZE'
@@ -61,11 +64,13 @@ C=======================================================================
 
       parameter (lt=lx1*ly1*lz1*lelt)
       real mask
+      integer partition_map
       common /mydiff/ xd(lx1,ly1,lz1,lelt),yd(lx1,ly1,lz1,lelt),
      $                zd(lx1,ly1,lz1,lelt),
      $                xd1(lx1,ly1,lz1,lelt),yd1(lx1,ly1,lz1,lelt),
      $                zd1(lx1,ly1,lz1,lelt),
-     $                mask(lx1,ly1,lz1,lelt)
+     $                mask(lx1,ly1,lz1,lelt),
+     $                partition_map(lx1,ly1,lz1,lelt)
       common /myothr/ h1(lt),h2(lt),work(lt, mxprev)
       logical cbc_mask, file_exists
 
@@ -232,6 +237,7 @@ c     call outpost(xd,yd,zd,pr,t,'   ')
         call add2(zm1,zd1,n)
 c       call outpost(xd1,yd1,zd1,pr,h1,'   ')
         call fix_geom !Reblend surface elements that have been projected
+        if (nio.eq.0) write(6,*) 'Done project ', k, '/', lapit
         do j=1,lx1*ly1*lz1*nelv
            xd(j,1,1,1) = xd(j,1,1,1)*(1-factor)
            yd(j,1,1,1) = yd(j,1,1,1)*(1-factor)
@@ -262,6 +268,11 @@ c     call exitti('quit usrdat2$',n)
       enddo
       enddo
 
+      call rzero(partition_map,n)
+      do e=1,n
+         partition_map(e,1,1,1) = nid
+      enddo
+      call outpost(xd1,yd1,zd1,nid,nid,'nid')
       return
       end
 c----------------------------------------------------------------------

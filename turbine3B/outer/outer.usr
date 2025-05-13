@@ -125,7 +125,7 @@ C=======================================================================
 
       param(59) = 1
       ifxyo = .true.
-      rad_target = 5.4
+      rad_target = 67
       do e=1,nelv
       do f=1,nface
 
@@ -160,12 +160,12 @@ C=======================================================================
          x = xm1(i,j,k,e)
          y = ym1(i,j,k,e)
          z = zm1(i,j,k,e)
-         rad_loc = sqrt(x*x + y*y)
+         rad_loc = sqrt(x*x + z*z)
          if (mask(i,j,k,e).eq.0) then ! On rim
               xt = (rad_target/rad_loc)*x
-              yt = (rad_target/rad_loc)*y
+              zt = (rad_target/rad_loc)*z
               xd(i,j,k,e) = xt - xm1(i,j,k,e)
-              yd(i,j,k,e) = yt - ym1(i,j,k,e)
+              zd(i,j,k,e) = zt - zm1(i,j,k,e)
               
          endif
       enddo
@@ -188,7 +188,7 @@ c     call outpost(xd,yd,zd,pr,t,'   ')
       tol     = 1.e-7
       maxit   = 250
       factor = 0.2
-      lapit = 0
+      lapit = 10
       do k=1,lapit
         call cheap_dist(dd1,1,'mv ')
         call cheap_dist(dd2,1,'int')

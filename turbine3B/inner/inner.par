@@ -1,12 +1,13 @@
 [GENERAL]
-polynomialOrder = 4
+polynomialOrder = 7
 #startFrom = "restart.fld"
-numSteps = 1000
-dt = 5e-4
+numSteps = 30000
+dt = 1e-4
 timeStepper = tombo2
-writeInterval = 100
+writeInterval = 1000
 udf = "../turbine.udf"
 #startFrom = "./inner0.f00020"
+startFrom = "./innergeo.f00000"
 
 regularization = hpfrt + nModes=1 + scalingCoeff=10
 
@@ -19,7 +20,7 @@ residualTol = 1e-04
 [VELOCITY]
 residualTol = 1e-6
 density = 1.0
-viscosity = 1/500
+viscosity = 1/50000
 boundaryTypeMap = interpolation, codedFixedValue
 solver=pcg+block
 

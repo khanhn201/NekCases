@@ -321,12 +321,12 @@ c       enddo
      $                ,tol,maxit,work,napprox)
 
 
-        call outpost(xd1,yd1,zd1,bm1,h1,'   ')
+c       call outpost(xd1,yd1,zd1,bm1,h1,'   ')
         call add2(xm1,xd1,n)
         call add2(ym1,yd1,n)
         call add2(zm1,zd1,n)
-        call outpost(xd1,yd1,zd1,bm1,h1,'   ')
-c       call fix_geom !Reblend surface elements that have been projected
+c       call outpost(xd1,yd1,zd1,bm1,h1,'   ')
+        call fix_geom !Reblend surface elements that have been projected
         if (nio.eq.0) write(6,*) 'Done project ', k, '/', lapit
       end do
 

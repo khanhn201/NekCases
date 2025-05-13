@@ -1,0 +1,35 @@
+[GENERAL]
+polynomialOrder = 4
+#startFrom = "restart.fld"
+numSteps = 1000
+dt = 5e-4
+timeStepper = tombo2
+writeInterval = 100
+udf = "../turbine.udf"
+#startFrom = "./inner0.f00020"
+
+regularization = hpfrt + nModes=1 + scalingCoeff=10
+
+[NEKNEK]
+boundaryEXTOrder = 1
+
+[PRESSURE]
+residualTol = 1e-04
+
+[VELOCITY]
+residualTol = 1e-6
+density = 1.0
+viscosity = 1/500
+boundaryTypeMap = interpolation, codedFixedValue
+solver=pcg+block
+
+[MESH]
+solver=user
+file = "inner.re2"
+
+[SCALAR00]
+solver = none
+
+[CASEDATA]
+# P_OMEGA = 0.375
+P_OMEGA = 0.110

@@ -1,14 +1,15 @@
 [GENERAL]
 polynomialOrder = 7
 #startFrom = "restart.fld"
-numSteps = 10000
+numSteps = 30000
 dt = 5e-6
 timeStepper = tombo2
-writeInterval = 500
+writeInterval = 1000
 udf = "../turbine.udf"
-#startFrom = "./inner0.f00020"
+#startFrom = "./innergeo.f00000"
+startFrom = "./inner50000.f00000"
 
-# regularization = hpfrt + nModes=2 + scalingCoeff=10
+regularization = hpfrt + nModes=1 + scalingCoeff=10
 
 [NEKNEK]
 boundaryEXTOrder = 1
@@ -18,9 +19,10 @@ residualTol = 1e-04
 
 [VELOCITY]
 residualTol = 1e-6
-density = 1.0
-viscosity = 1/5000
+density = 1.2
+viscosity = 1/10000
 boundaryTypeMap = interpolation, codedFixedValue
+solver = pcg+block
 
 [MESH]
 solver=user

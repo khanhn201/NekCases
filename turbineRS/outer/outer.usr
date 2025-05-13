@@ -272,7 +272,7 @@ c     call exitti('quit usrdat2$',n)
       do e=1,n
          partition_map(e,1,1,1) = nid
       enddo
-      call outpost(xd1,yd1,zd1,nid,nid,'nid')
+      call outpost(xd1,yd1,zd1,partition_map,partition_map,'nid')
       return
       end
 c----------------------------------------------------------------------

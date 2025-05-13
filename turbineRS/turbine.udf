@@ -379,12 +379,11 @@ void UDF_ExecuteStep(double time, int tstep)
   deviceMemory<dfloat> o_UY(nrs->o_U.slice(1 * nrs->fieldOffset));
   deviceMemory<dfloat> o_UZ(nrs->o_U.slice(2 * nrs->fieldOffset));
   
-  explicitFilterApply("vel", meshV, 1, 0.01, o_UX);
-  explicitFilterApply("vel", meshV, 1, 0.01, o_UY);
-  explicitFilterApply("vel", meshV, 1, 0.01, o_UZ);
-  explicitFilterApply("vel", meshV, 1, 0.01, nrs->o_P);
+//  explicitFilterApply("vel", meshV, 1, 0.0001, o_UX);
+//  explicitFilterApply("vel", meshV, 1, 0.0001, o_UY);
+//  explicitFilterApply("vel", meshV, 1, 0.0001, o_UZ);
 
-  if (nrs->checkpointStep) {
+  if (nrs->checkpointStep || tstep == 0 || tstep == 1) {
     nrs->copyToNek(time, tstep);
     nek::userchk();
     nrs->copyFromNek(time);

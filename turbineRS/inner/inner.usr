@@ -305,7 +305,7 @@ c     call add2(zm1,zd,n)
 c     call outpost(xd,yd,zd,bm1,t,'   ')
 c     call fix_geom !Reblend surface elements that have been projected
 
-      alpha = 0.01
+      alpha = 0.02
       tol     = 1.e-7
       maxit   = 800
       factor = 0.1
@@ -412,7 +412,7 @@ c     Else
       do e=1,n
          partition_map(e,1,1,1) = nid
       enddo
-      call outpost(xd1,yd1,zd1,nid,nid,'nid')
+      call outpost(xd1,yd1,zd1,partition_map,partition_map,'nid')
 
       return
       end

@@ -1,5 +1,5 @@
 [GENERAL]
-polynomialOrder = 7
+polynomialOrder = 3
 #startFrom = "restart.fld"
 numSteps = 30000
 dt = 1e-4
@@ -7,7 +7,7 @@ timeStepper = tombo2
 writeInterval = 1000
 udf = "../turbine.udf"
 #startFrom = "./inner0.f00020"
-startFrom = "./innergeo.f00000"
+# startFrom = "./innergeo.f00000"
 
 regularization = hpfrt + nModes=1 + scalingCoeff=10
 

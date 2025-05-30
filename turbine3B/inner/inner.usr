@@ -109,6 +109,12 @@ C=======================================================================
       real dd2(lx1*ly1*lz1*lelv)
 
 
+      integer max_surfs, n_surf, ss
+      parameter(max_surfs=lelt*6) ! to be set to =lelt
+      integer surf_face(3, max_surfs) ! (dest, elem, face)
+      real surf_pack(58, max_surfs)
+
+
       idftyp = 0      !distance function - 0 -> exponential, 1-> tanh
       alpha = 15.     !Input for wall distance function 
       beta  = 0.01     !
@@ -145,7 +151,8 @@ C=======================================================================
       do e=1,nelv
         eg = lglel(e)
         do f=1,nface
-              if (cbc(f,e,1).eq.'int') then ! On rim
+              if ((cbc(f,e,1).eq.'int').or.
+     $            (cbc(f,e,1).eq.'W  ')) then ! On rim or blade
                  call facind(i0,i1,j0,j1,k0,k1,lx1,ly1,lz1,f)
                  do k=k0,k1
                  do j=j0,j1
@@ -156,62 +163,98 @@ C=======================================================================
                  enddo
               endif
         enddo
-        write(filename, '(A, I8.8, A)') 'surfaces/surface', 
-     $             eg, '.txt'
-        inquire(file=filename, exist=file_exists)
-        if (file_exists) then ! Has surface data
-               call facind(i0,i1,j0,j1,k0,k1,lx1,ly1,lz1,3)
-               do k=k0,k1
-               do j=j0,j1
-               do i=i0,i1
-                  mask(i,j,k,e) = 0.0
-               enddo
-               enddo
-               enddo
-        endif
       enddo
       call dsop(mask,'*  ',lx1,ly1,lz1)  ! zero mask for any surface vertex
 c     call outpost(xd,yd,zd,pr,mask,'   ')
 
       rad_target = glamax(xm1,n)
 
+      call read_surfaces(surf_face, surf_pack, n_surf)
+
       call zwgll(zgmf,wxmf,lx1)
-      call facind(i0,i1,j0,j1,k0,k1,lx1,ly1,lz1,3)
-      do e=1,nelv
-      do k=k0,k1
-      do j=j0,j1
-      do i=i0,i1
-         eg = lglel(e)
+c      call facind(i0,i1,j0,j1,k0,k1,lx1,ly1,lz1,3)
+c      do e=1,nelv
+c      do k=k0,k1
+c      do j=j0,j1
+c      do i=i0,i1
+c         eg = lglel(e)
+c         x = xm1(i,j,k,e)
+c         y = ym1(i,j,k,e)
+c         z = zm1(i,j,k,e)
+c         rad_loc = sqrt(x*x + y*y)
+c         if (mask(i,j,k,e).eq.0) then ! On blade
+c              write(filename, '(A, I8.8, A)') 'surfaces/surface', 
+c     $             eg, '.txt'
+c              inquire(file=filename, exist=file_exists)
+c              if (file_exists) then ! Has surface data
+c                 call read_splines(foursplines, fourlimits, eg)
+c
+c                 v = (zgmf(k - k0 + 1)+1)/2
+c                 u = 1 - (zgmf(i - i0 + 1)+1)/2
+c
+c                 if ((u.lt.-0.1).or.(u.gt.1.1)) then
+c			 write(6,*) 'u', u
+c                 endif
+c                 if ((v.lt.-0.1).or.(v.gt.1.1)) then
+c			 write(6,*) 'v', v
+c                 endif
+c                 call coons_patch(foursplines,fourlimits,u,v,pc,x,y,z)
+c                 xd(i,j,k,e) = pc(1) - x
+c                 yd(i,j,k,e) = pc(2) - y
+c                 zd(i,j,k,e) = pc(3) - z
+c              endif
+c         endif
+c      enddo
+c      enddo
+c      enddo
+c      enddo
+
+
+      do ss=1,n_surf
+        eg = surf_face(2,ss)
+        f = surf_face(3,ss)
+        call facind(i0,i1,j0,j1,k0,k1,lx1,ly1,lz1,f)
+        do k=k0,k1
+        do j=j0,j1
+        do i=i0,i1
+         e = gllel(eg)
          x = xm1(i,j,k,e)
          y = ym1(i,j,k,e)
          z = zm1(i,j,k,e)
-         rad_loc = sqrt(x*x + y*y)
-         if (mask(i,j,k,e).eq.0) then ! On blade
-              write(filename, '(A, I8.8, A)') 'surfaces/surface', 
-     $             eg, '.txt'
-              inquire(file=filename, exist=file_exists)
-              if (file_exists) then ! Has surface data
-                 call read_splines(foursplines, fourlimits, eg)
+         ! foursplines(4,3,4)
+         ! fourlimits(4,2)
+         do spline=1,4
+         do dimen=1,3
+           do sii=1,4
+             foursplines(spline, dimen, sii) = 
+     $         surf_pack(2 + (spline-1)*14 + (dimen-1)*4 + sii, ss)
+           enddo
+           fourlimits(spline, 1) =
+     $       surf_pack(2 + spline*14 - 1, ss)
+           fourlimits(spline, 2) =
+     $       surf_pack(2 + spline*14, ss)
+         enddo
+         enddo
+         v = (zgmf(k - k0 + 1)+1)/2
+         u = 1 - (zgmf(i - i0 + 1)+1)/2
 
-                 v = (zgmf(k - k0 + 1)+1)/2
-                 u = 1 - (zgmf(i - i0 + 1)+1)/2
-
-                 if ((u.lt.-0.1).or.(u.gt.1.1)) then
-			 write(6,*) 'u', u
-                 endif
-                 if ((v.lt.-0.1).or.(v.gt.1.1)) then
-			 write(6,*) 'v', v
-                 endif
-                 call coons_patch(foursplines,fourlimits,u,v,pc,x,y,z)
-                 xd(i,j,k,e) = pc(1) - x
-                 yd(i,j,k,e) = pc(2) - y
-                 zd(i,j,k,e) = pc(3) - z
-              endif
+         if ((u.lt.-0.1).or.(u.gt.1.1)) then
+           write(6,*) 'u', u
          endif
+         if ((v.lt.-0.1).or.(v.gt.1.1)) then
+           write(6,*) 'v', v
+         endif
+         call coons_patch(foursplines,fourlimits,u,v,pc,x,y,z)
+         xd(i,j,k,e) = pc(1) - x
+         yd(i,j,k,e) = pc(2) - y
+         zd(i,j,k,e) = pc(3) - z
+        enddo
+        enddo
+        enddo
       enddo
-      enddo
-      enddo
-      enddo
+
+
+
       do e=1,nelv
         eg = lglel(e)
         do f=1,nface
@@ -273,7 +316,7 @@ c     call fix_geom !Reblend surface elements that have been projected
       tol     = 1.e-7
       maxit   = 800
       factor = 0.1
-      lapit = 10
+      lapit = 5
       do k=1,lapit
         call cheap_dist(dd1,1,'mv ')
         call cheap_dist(dd2,1,'int')
@@ -426,6 +469,120 @@ c----------------------------------------------------------------------
       end do
 
       close(72)
+      end
+
+c----------------------------------------------------------------------
+      subroutine read_surfaces(surf_face, surf_pack, n_surf)
+      implicit none
+      include 'SIZE'
+      include 'PARALLEL'
+
+      integer nidd,npp,nekcomm,nekgroup
+      real nekreal
+      common /nekmpi/ nidd,npp,nekcomm,nekgroup,nekreal
+
+      integer max_surfs
+      parameter(max_surfs=lelt*6) ! to be set to =lelt
+
+      integer file_size, block_size, num_blocks, skip_bytes, p
+      integer cr_surf, i, n_surf, mtag, num_surfs, j, elem, k
+      
+      integer surf_face(3, max_surfs) ! (dest, elem, face)
+      real surf_pack(58, max_surfs)
+      real empty_surf_pack(58, max_surfs)
+      character header(92)
+      character buf(58*8)
+      real*8 temp
+
+c     header
+c       80 bytes strings
+c       4 bytes 6.54321 endian check
+c       8 bytes n_surfaces
+c     58 doubles for each surface
+c       elem_id
+c       face
+c       spline1 12 coeffs
+c               2 endpoints
+c       spline2 12 coeffs
+c               2 endpoints
+c       spline3 12 coeffs
+c               2 endpoints
+c       spline4 12 coeffs
+c               2 endpoints
+
+
+      call rzero(empty_surf_pack, 58*max_surfs)
+      call rzero(surf_pack, 58*max_surfs)
+      call rzero(surf_face, 3*max_surfs)
+      mtag = 999
+
+      block_size = 58*8 ! 58 doubles/surface
+      skip_bytes = 92 ! skip header
+      call nekgsync()
+
+      if (nid.eq.0) then
+         open(unit=10, file='inner.ssurf', form='unformatted', 
+     $           access='stream', action='read')
+         inquire(unit=10, size=file_size)
+         num_surfs = (file_size - skip_bytes) / block_size
+c      CHECK FOR ENDIAN?
+         read(10) header
+         write(6,*) header
+         write(6,*) 'Number of surfaces', file_size - skip_bytes,
+     $    num_surfs
+         k = 0
+         p = 1
+         do i = 1, num_surfs
+           read(10) buf
+           k = k + 1
+           do j = 1,58
+             temp = transfer(buf((j-1)*8+1:j*8), temp)
+             surf_pack(j, k) = temp
+           end do
+           if (k.eq.(max_surfs)) then
+               call csend(mtag,surf_pack,max_surfs*block_size,p,0)
+               p = p + 1
+               k = 0
+               call rzero(surf_pack, 58*max_surfs)
+           endif
+         end do
+         do i = p, np-1
+           call csend(mtag,empty_surf_pack,max_surfs*block_size,i,0)
+         end do
+         close(10)
+c     write(6,*) 'nid, id_start, id_end', nid, surf_pack(1,1)
+c    $                                       , surf_pack(1,max(k,1))
+      else
+         call crecv(mtag,surf_pack,max_surfs*block_size)
+c     write(6,*) 'nid, id_start, id_end', nid, surf_pack(1,1)
+c    $                                       , surf_pack(1,max_surfs)
+      endif
+      
+      call nekgsync()
+c     process packs
+      n_surf = 0
+      do i = 1, max_surfs
+        if (surf_pack(1,i).eq.0.0) then
+            exit
+        endif
+        elem = int(surf_pack(1,i))
+        surf_face(1, i) = gllnid(elem)
+        surf_face(2, i) = elem
+        surf_face(3, i) = int(surf_pack(2,i))
+        n_surf = n_surf + 1
+      end do
+      write(6,*) 'nid, id_start, id_end', nid, surf_face(2,1)
+     $                 , surf_face(2,max(n_surf,1)), n_surf
+
+      call nekgsync()
+      call fgslib_crystal_setup(cr_surf,nekcomm,np)
+      call fgslib_crystal_tuple_transfer(cr_surf,n_surf,max_surfs
+     $                          ,surf_face,3,0,0,surf_pack,58,1)
+      call fgslib_crystal_free(cr_surf)
+      write(6,*) nid, "recieved", n_surf
+      call nekgsync()
+
+      return
       end
 
 c----------------------------------------------------------------------

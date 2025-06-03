@@ -148,67 +148,11 @@ C=======================================================================
       
       nface = 2*ldim
 
-      do e=1,nelv
-        eg = lglel(e)
-        do f=1,nface
-              if ((cbc(f,e,1).eq.'int').or.
-     $            (cbc(f,e,1).eq.'W  ')) then ! On rim or blade
-                 call facind(i0,i1,j0,j1,k0,k1,lx1,ly1,lz1,f)
-                 do k=k0,k1
-                 do j=j0,j1
-                 do i=i0,i1
-                    mask(i,j,k,e) = 0.0
-                 enddo
-                 enddo
-                 enddo
-              endif
-        enddo
-      enddo
-      call dsop(mask,'*  ',lx1,ly1,lz1)  ! zero mask for any surface vertex
-c     call outpost(xd,yd,zd,pr,mask,'   ')
-
       rad_target = glamax(xm1,n)
 
       call read_surfaces(surf_face, surf_pack, n_surf)
 
       call zwgll(zgmf,wxmf,lx1)
-c      call facind(i0,i1,j0,j1,k0,k1,lx1,ly1,lz1,3)
-c      do e=1,nelv
-c      do k=k0,k1
-c      do j=j0,j1
-c      do i=i0,i1
-c         eg = lglel(e)
-c         x = xm1(i,j,k,e)
-c         y = ym1(i,j,k,e)
-c         z = zm1(i,j,k,e)
-c         rad_loc = sqrt(x*x + y*y)
-c         if (mask(i,j,k,e).eq.0) then ! On blade
-c              write(filename, '(A, I8.8, A)') 'surfaces/surface', 
-c     $             eg, '.txt'
-c              inquire(file=filename, exist=file_exists)
-c              if (file_exists) then ! Has surface data
-c                 call read_splines(foursplines, fourlimits, eg)
-c
-c                 v = (zgmf(k - k0 + 1)+1)/2
-c                 u = 1 - (zgmf(i - i0 + 1)+1)/2
-c
-c                 if ((u.lt.-0.1).or.(u.gt.1.1)) then
-c			 write(6,*) 'u', u
-c                 endif
-c                 if ((v.lt.-0.1).or.(v.gt.1.1)) then
-c			 write(6,*) 'v', v
-c                 endif
-c                 call coons_patch(foursplines,fourlimits,u,v,pc,x,y,z)
-c                 xd(i,j,k,e) = pc(1) - x
-c                 yd(i,j,k,e) = pc(2) - y
-c                 zd(i,j,k,e) = pc(3) - z
-c              endif
-c         endif
-c      enddo
-c      enddo
-c      enddo
-c      enddo
-
 
       do ss=1,n_surf
         eg = surf_face(2,ss)
@@ -221,6 +165,7 @@ c      enddo
          x = xm1(i,j,k,e)
          y = ym1(i,j,k,e)
          z = zm1(i,j,k,e)
+         mask(i,j,k,e) = 0.0
          ! foursplines(4,3,4)
          ! fourlimits(4,2)
          do spline=1,4
@@ -263,6 +208,7 @@ c      enddo
                  do k=k0,k1
                  do j=j0,j1
                  do i=i0,i1
+                         mask(i,j,k,e) = 0.0
 			 x = xm1(i,j,k,e)
 			 y = ym1(i,j,k,e)
 			 z = zm1(i,j,k,e)
@@ -277,6 +223,7 @@ c      enddo
               endif
         enddo
       enddo
+      call dsop(mask,'*  ',lx1,ly1,lz1)  ! zero mask for any surface vertex
       
       do k=1,n
         xd1(k,1,1,1) = min(xd(k,1,1,1), 0.0)
@@ -410,10 +357,10 @@ c     Else
       enddo
       enddo
 
-      call rzero(partition_map,n)
-      do e=1,n
-         partition_map(e,1,1,1) = nid
-      enddo
+c     call rzero(partition_map,n)
+c     do e=1,n
+c        partition_map(e,1,1,1) = nid
+c     enddo
 c     call outpost(xd1,yd1,zd1,nid,nid,'nid')
 
       return

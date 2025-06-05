@@ -1,0 +1,147 @@
+// nekRS User Defined File
+//
+#include "udf.hpp"
+#include "nekAscent.hpp"
+
+static dfloat P_OMEGA;
+
+static int processAscentYamlFrequency;
+
+std::unique_ptr<iofld> iofld;
+
+#define ASCENT_UPDATE_SIGNAL SIGUSR1
+volatile sig_atomic_t processAscentYaml = 0;
+
+
+
+
+#ifdef __okl__
+// Boundary conditions
+void codedFixedValueVelocity(bcData *bc)
+{
+  if (bc->id == 1) {// Int Boundaries
+      bc->u = bc->uinterp;
+      bc->v = bc->vinterp;
+      bc->w = bc->winterp;
+  }
+  if (bc->id == 2) {// mv Boundaries
+      bc->u = p_omega * bc->z;
+      bc->w = -p_omega * bc->x;
+      bc->v = 0.0;
+  }
+  if (bc->id == 3) {// v Boundaries
+      bc->u = 0.0;
+      bc->w = 0.0;
+      bc->v = -1.0;
+  }
+}
+
+@kernel void userMeshVelocity(const dlong Ntotal,
+                              const dlong offset,
+                              @ restrict const dfloat *x,
+                              @ restrict const dfloat *y,
+                              @ restrict const dfloat *z,
+                              @ restrict dfloat *W)
+{
+  for (dlong n = 0; n < Ntotal; ++n; @tile(p_blockSize, @outer, @inner)) {
+    W[n + 0 * offset] = p_omega * z[n];
+    W[n + 2 * offset] = -p_omega * x[n];
+    W[n + 1 * offset] = 0.0;
+  }
+}
+
+#endif
+
+void UDF_LoadKernels(deviceKernelProperties& kernelInfo)
+{
+  kernelInfo.define("p_omega") = P_OMEGA;
+}
+
+void UDF_Setup0(MPI_Comm comm, setupAide &options)
+{
+  platform->par->extract("casedata", "p_omega", P_OMEGA);
+  platform->par->extract("casedata", "processAscentYamlFrequency", processAscentYamlFrequency);
+}
+
+void userq(double time)
+{
+
+}
+void UDF_Setup()
+{
+
+  auto mesh = nrs->mesh;
+#ifdef NEKRS_ASCENT_ENABLED 
+  {
+  auto printFldMinMax = [&](std::string tag, mesh_t *mesh, occa::memory& o_a)
+  {
+    const auto v = mesh->volume;
+    const auto umin = platform->linAlg->min(mesh->Nlocal, o_a, platform->comm.mpiComm);
+    const auto umax = platform->linAlg->max(mesh->Nlocal, o_a, platform->comm.mpiComm);
+    const auto ubar = platform->linAlg->innerProd(mesh->Nlocal, o_a, mesh->o_LMM, platform->comm.mpiComm) / v;
+    if (platform->comm.mpiRank == 0) {
+      printf("%s min/max/avg: %15.8e %15.8e %15.8e\n",
+             tag.c_str(), umin, umax, ubar);
+    }
+  };
+    auto handleSignal = [](int signal) {
+      processAscentYaml = 1;
+    };
+    std::signal(ASCENT_UPDATE_SIGNAL, handleSignal);
+
+    auto cds = nrs->cds;
+    auto meshV = nrs->mesh;
+    auto meshT = (nrs->cds) ? cds->mesh[0] : meshV;
+
+    deviceMemory<dfloat> o_ux(nrs->o_U.slice(0 * nrs->fieldOffset));
+    deviceMemory<dfloat> o_uy(nrs->o_U.slice(1 * nrs->fieldOffset));
+    deviceMemory<dfloat> o_uz(nrs->o_U.slice(2 * nrs->fieldOffset));
+    std::vector<deviceMemory<dfloat>> o_U{o_ux, o_uy, o_uz};
+    nekAscent::addVariable("velocity", meshV, o_U);
+
+    deviceMemory<dfloat> o_scalar0(cds->o_S.slice(cds->fieldOffsetScan[0])); 
+    auto o_si = nrs->cds->o_S + nrs->cds->fieldOffsetScan[0];
+    printFldMinMax("o_si      ", mesh, o_si);
+    printFldMinMax("o_scalar0 ", mesh, o_scalar0);
+    nekAscent::addVariable("scalar00", meshT, std::vector<deviceMemory<dfloat>>{o_scalar0});
+
+
+    const int Nviz =  std::min(2 * mesh->N, 13);
+    const auto uniform = true;
+    nekAscent::setup(mesh, "ascent.yaml", Nviz, uniform, true, true);
+  }
+#endif
+}
+
+void UDF_ExecuteStep(double time, int tstep)
+{
+  auto *mesh = nrs->meshV;
+  userMeshVelocity(mesh->Nlocal, nrs->fieldOffset, mesh->o_x, mesh->o_y, mesh->o_z, mesh->o_U);
+
+  auto meshV = nrs->mesh;
+
+
+#ifdef NEKRS_ASCENT_ENABLED
+  blockSignal(ASCENT_UPDATE_SIGNAL);
+  MPI_Bcast(const_cast<sig_atomic_t*>(&processAscentYaml), 1, MPI_INT, 0, platform->comm.mpiComm);
+  processAscentYaml = processAscentYaml || (tstep % processAscentYamlFrequency == 0 && tstep > 0);
+#endif
+  if (nrs->checkpointStep) {
+    nrs->copyToNek(time, tstep);
+    nek::userchk();
+    nrs->copyFromNek(time);
+  }
+#ifdef NEKRS_ASCENT_ENABLED
+  if (processAscentYaml) {
+    nekAscent::run(time, tstep);
+    processAscentYaml = 0;
+  }
+  if (nrs->lastStep) nekAscent::finalize();
+  unblockSignal(ASCENT_UPDATE_SIGNAL);
+#endif
+
+
+
+}
+
+

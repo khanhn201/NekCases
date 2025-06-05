@@ -263,7 +263,7 @@ c     call fix_geom !Reblend surface elements that have been projected
       tol     = 1.e-7
       maxit   = 800
       factor = 0.1
-      lapit = 5
+      lapit = 0
       do k=1,lapit
         call cheap_dist(dd1,1,'mv ')
         call cheap_dist(dd2,1,'int')

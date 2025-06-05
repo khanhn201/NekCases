@@ -1,13 +1,14 @@
 [GENERAL]
-polynomialOrder = 3
+polynomialOrder = 9
 #startFrom = "restart.fld"
-numSteps = 30000
-dt = 1e-4
+numSteps = 5000
+dt = 2e-5
+subCyclingSteps = 2
 timeStepper = tombo2
-writeInterval = 1000
-udf = "../turbine.udf"
+writeInterval = 100
+#udf = "../turbine.udf"
 #startFrom = "./inner0.f00020"
-# startFrom = "./innergeo.f00000"
+startFrom = "./innergeo.f00000"
 
 regularization = hpfrt + nModes=1 + scalingCoeff=10
 
@@ -34,3 +35,4 @@ solver = none
 [CASEDATA]
 # P_OMEGA = 0.375
 P_OMEGA = 0.110
+processAscentYamlFrequency = 100

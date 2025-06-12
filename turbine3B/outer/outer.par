@@ -1,10 +1,11 @@
 [GENERAL]
-polynomialOrder = 7
+polynomialOrder = 9
 #startFrom = "restart.fld"
-numSteps = 30000
-dt = 1e-4
+numSteps = 100
+dt = 4e-5
+subCyclingSteps = 2
 timeStepper = tombo2
-writeInterval = 1000
+writeInterval = 10
 udf = "../turbine.udf"
 #startFrom = "./outer0.f00020"
 startFrom = "./outergeo.f00000"

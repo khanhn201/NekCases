@@ -1,11 +1,11 @@
 [GENERAL]
 polynomialOrder = 9
 #startFrom = "restart.fld"
-numSteps = 5000
-dt = 2e-5
+numSteps = 100
+dt = 4e-5
 subCyclingSteps = 2
 timeStepper = tombo2
-writeInterval = 100
+writeInterval = 10
 #udf = "../turbine.udf"
 #startFrom = "./inner0.f00020"
 startFrom = "./innergeo.f00000"
@@ -35,4 +35,4 @@ solver = none
 [CASEDATA]
 # P_OMEGA = 0.375
 P_OMEGA = 0.110
-processAscentYamlFrequency = 100
+processAscentYamlFrequency = 10

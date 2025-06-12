@@ -14,11 +14,13 @@
         params:
           field: "my_vel"
           output_name: "velocity_mag"
+    pl2:
+      pipeline: "pl1"
       f3:
         type: "contour"
         params:
           field: "scalar00"
-          iso_values: [-10.0]
+          iso_values: [-1.0]
 -             
   action: "add_scenes"
   scenes:
@@ -27,8 +29,7 @@
         p1:
           type: "pseudocolor"
           field: "velocity_mag"
-            #          field: "scalar00"
-          pipeline: "pl1"
+          pipeline: "pl2"
           color_table:
             name: "Cool to Warm Extended"
           min_value: 0.0
@@ -40,8 +41,8 @@
             look_at: [0.0, 0.0, 0.0]
             up: [0.0, 0.0, -1.0]
             zoom: 1.0
-          image_prefix: "s00_%06d"
+          image_prefix: "l2_01_%06d"
           world_annotations: false
           screen_annotations: false
-          image_width: 1024
-          image_height: 1024
+          image_width: 2048
+          image_height: 2048

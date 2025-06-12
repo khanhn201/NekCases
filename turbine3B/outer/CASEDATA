@@ -1,3 +1,0 @@
-      real p_omega
-
-      common /casevars/ p_omega

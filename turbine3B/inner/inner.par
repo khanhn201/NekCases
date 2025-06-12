@@ -1,14 +1,14 @@
 [GENERAL]
-polynomialOrder = 4
+polynomialOrder = 9
 #startFrom = "restart.fld"
-numSteps = 100
-dt = 4e-5
+numSteps = 50000
+dt = 1e-4
 subCyclingSteps = 2
 timeStepper = tombo2
-writeInterval = 10
+writeInterval = 1000
 #udf = "../turbine.udf"
 #startFrom = "./inner0.f00020"
-#startFrom = "./innergeo.f00000"
+startFrom = "./innergeo.f00000"
 
 regularization = hpfrt + nModes=1 + scalingCoeff=10
 
@@ -21,12 +21,12 @@ residualTol = 1e-04
 [VELOCITY]
 residualTol = 1e-6
 density = 1.0
-viscosity = 1/1000
+viscosity = 1/50000
 boundaryTypeMap = interpolation, codedFixedValue
 solver=pcg+block
 
 [MESH]
-#solver=user
+solver=user
 file = "inner.re2"
 
 [SCALAR00]
@@ -34,6 +34,6 @@ solver = none
 
 [CASEDATA]
 # P_OMEGA = 0.375
-# P_OMEGA = 0.110
-P_OMEGA = 0.0
+P_OMEGA = 0.110
+# P_OMEGA = 0.0
 processAscentYamlFrequency = 1000

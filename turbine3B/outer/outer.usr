@@ -185,7 +185,10 @@ c     call outpost(xd,yd,zd,pr,t,'   ')
       tol     = 1.e-7
       maxit   = 250
       factor = 0.2
-      lapit = 5
+      lapit = 0
+      if (lx1.le.7) then
+        lapit = 5
+      endif
       do k=1,lapit
         call cheap_dist(dd1,1,'mv ')
         call cheap_dist(dd2,1,'int')

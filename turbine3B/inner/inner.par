@@ -2,7 +2,7 @@
 polynomialOrder = 9
 #startFrom = "restart.fld"
 numSteps = 50000
-dt = 1e-4
+dt = 5e-5
 subCyclingSteps = 2
 timeStepper = tombo2
 writeInterval = 1000

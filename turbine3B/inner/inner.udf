@@ -396,7 +396,7 @@ void UDF_Setup()
     nekAscent::addVariable("scalar00", meshT, std::vector<deviceMemory<dfloat>>{o_scalar0});
 
 
-    const int Nviz =  mesh->N;
+    const int Nviz = std::min(2*mesh->N, 13);
     const auto uniform = true;
     nekAscent::setup(mesh, "ascent.yaml", Nviz, uniform, true, true);
   }

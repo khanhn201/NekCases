@@ -41,9 +41,6 @@ c-----------------------------------------------------------------------
 c-----------------------------------------------------------------------
       subroutine usrdat0
       include 'SIZE'
-      include 'CASEDATA'
-
-      call nekrs_registerPtr('p_omega', P_OMEGA)
 
       return
       end
@@ -188,7 +185,7 @@ c     call outpost(xd,yd,zd,pr,t,'   ')
       tol     = 1.e-7
       maxit   = 250
       factor = 0.2
-      lapit = 0
+      lapit = 5
       do k=1,lapit
         call cheap_dist(dd1,1,'mv ')
         call cheap_dist(dd2,1,'int')

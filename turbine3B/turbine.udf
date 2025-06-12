@@ -309,6 +309,10 @@ void explicitFilterApply(std::string tag,  mesh_t *mesh, const dlong filterNc, c
   filterTensor3(m.mesh->Nelements, m.o_filterRT, o_fld);
 }
 
+
+
+
+
 #ifdef __okl__
 
 // Boundary conditions
@@ -354,6 +358,7 @@ void UDF_LoadKernels(deviceKernelProperties& kernelInfo)
 void UDF_Setup0(MPI_Comm comm, setupAide &options)
 {
   platform->par->extract("casedata", "p_omega", P_OMEGA);
+  platform->options.setArgs("CHECKPOINT READ USE CRYSTAL ROUTER", "TRUE");
 }
 
 void userq(double time)
@@ -366,8 +371,11 @@ void UDF_Setup()
 
 void UDF_ExecuteStep(double time, int tstep)
 {
-  auto *mesh = nrs->meshV;
-  userMeshVelocity(mesh->Nlocal, nrs->fieldOffset, mesh->o_x, mesh->o_y, mesh->o_z, mesh->o_U);
+  const bool movingMesh = platform->options.compareArgs("MOVING MESH", "TRUE");
+  if (movingMesh) {
+    auto *mesh = nrs->meshV;
+    userMeshVelocity(mesh->Nlocal, nrs->fieldOffset, mesh->o_x, mesh->o_y, mesh->o_z, mesh->o_U);
+  }
 
   auto meshV = nrs->mesh;
 
@@ -375,9 +383,9 @@ void UDF_ExecuteStep(double time, int tstep)
 // auto o_UY = nrs->o_U + 1 * nrs->fieldOffset;
 // auto o_UZ = nrs->o_U + 2 * nrs->fieldOffset;
 
-  deviceMemory<dfloat> o_UX(nrs->o_U.slice(0 * nrs->fieldOffset));
-  deviceMemory<dfloat> o_UY(nrs->o_U.slice(1 * nrs->fieldOffset));
-  deviceMemory<dfloat> o_UZ(nrs->o_U.slice(2 * nrs->fieldOffset));
+//  deviceMemory<dfloat> o_UX(nrs->o_U.slice(0 * nrs->fieldOffset));
+//  deviceMemory<dfloat> o_UY(nrs->o_U.slice(1 * nrs->fieldOffset));
+//  deviceMemory<dfloat> o_UZ(nrs->o_U.slice(2 * nrs->fieldOffset));
   
 //  explicitFilterApply("vel", meshV, 1, 0.01, o_UX);
 //  explicitFilterApply("vel", meshV, 1, 0.01, o_UY);

@@ -6,7 +6,6 @@ dt = 1e-5
 subCyclingSteps = 1
 timeStepper = tombo2
 writeInterval = 1000
-udf = "../turbine.udf"
 #startFrom = "./outer0.f00020"
 startFrom = "./outergeo.f00000"
 
@@ -33,6 +32,4 @@ file = "outer.re2"
 solver = none
 
 [CASEDATA]
-P_OMEGA = 0.0
-COUNTER_ROTATE = 1
-P_OMEGA_COUNTER = 0.110
+P_OMEGA = 0.110

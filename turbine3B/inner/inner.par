@@ -6,7 +6,6 @@ dt = 1e-5
 subCyclingSteps = 1
 timeStepper = tombo2
 writeInterval = 1000
-#udf = "../turbine.udf"
 #startFrom = "./inner0.f00020"
 startFrom = "./innergeo.f00000"
 

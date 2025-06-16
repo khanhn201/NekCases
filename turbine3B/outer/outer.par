@@ -2,8 +2,8 @@
 polynomialOrder = 9
 #startFrom = "restart.fld"
 numSteps = 50000
-dt = 5e-5
-subCyclingSteps = 2
+dt = 1e-5
+subCyclingSteps = 1
 timeStepper = tombo2
 writeInterval = 1000
 udf = "../turbine.udf"
@@ -21,7 +21,7 @@ residualTol = 1e-04
 [VELOCITY]
 residualTol = 1e-6
 density = 1.0
-viscosity = 1/50000
+viscosity = 1/500000
 boundaryTypeMap = interpolation, zeroGradient, codedFixedValue, zeroValue
 solver=pcg+block
 
@@ -34,3 +34,5 @@ solver = none
 
 [CASEDATA]
 P_OMEGA = 0.0
+COUNTER_ROTATE = 1
+P_OMEGA_COUNTER = 0.110

@@ -1,13 +1,13 @@
 [GENERAL]
-polynomialOrder = 9
+polynomialOrder = 7
 #startFrom = "restart.fld"
-numSteps = 50000
-dt = 1e-5
+numSteps = 100000
+dt = 1e-4
 subCyclingSteps = 1
 timeStepper = tombo2
-writeInterval = 1000
-#startFrom = "./outer0.f00020"
-startFrom = "./outergeo.f00000"
+writeInterval = 2000
+startFrom = "./outer0.f00031"
+#startFrom = "./outergeo.f00000"
 
 regularization = hpfrt + nModes=1 + scalingCoeff=10
 
@@ -20,7 +20,7 @@ residualTol = 1e-04
 [VELOCITY]
 residualTol = 1e-6
 density = 1.0
-viscosity = 1/500000
+viscosity = 1/1000
 boundaryTypeMap = interpolation, zeroGradient, codedFixedValue, zeroValue
 solver=pcg+block
 

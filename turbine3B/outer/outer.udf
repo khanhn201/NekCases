@@ -347,14 +347,12 @@ void codedFixedValueVelocity(bcData *bc)
                       @ restrict dfloat *X,
                       @ restrict dfloat *Y,
                       @ restrict dfloat *Z,
-                      double timeDifference)
+                      double costheta,
+                      double sintheta)
 {
   for (dlong n = 0; n < Ntotal; ++n; @tile(p_blockSize, @outer, @inner)) {
     const dfloat xc = X[n];
     const dfloat zc = Z[n];
-    const dfloat thv = -timeDifference*p_omega;
-    const dfloat costheta = cos(thv);
-    const dfloat sintheta = sin(thv);
     X[n] = xc*costheta + zc*sintheta;
     Z[n] = -xc*sintheta + zc*costheta;
   }
@@ -364,7 +362,10 @@ void codedFixedValueVelocity(bcData *bc)
 
 void userMeshPosition(int npts, occa::memory o_x, occa::memory o_y, occa::memory o_z, double timeDifference)
 {
-    userMeshPositionKernel(npts, o_x, o_y, o_z, timeDifference);
+    const dfloat thv = -timeDifference*P_OMEGA;
+    const dfloat costheta = cos(thv);
+    const dfloat sintheta = sin(thv);
+    userMeshPositionKernel(npts, o_x, o_y, o_z, costheta, sintheta);
 }
 
 

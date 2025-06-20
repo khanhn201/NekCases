@@ -1,18 +1,21 @@
 [GENERAL]
-polynomialOrder = 7
+polynomialOrder = 9
 #startFrom = "restart.fld"
-numSteps = 100000
+numSteps = 500000
 dt = 1e-4
 subCyclingSteps = 1
 timeStepper = tombo2
 writeInterval = 2000
-startFrom = "./inner0.f00031"
-#startFrom = "./innergeo.f00000"
+#startFrom = "./inner0.f00031"
+startFrom = "./innergeo.f00000"
+
+udf = "../turbine.udf"
 
 regularization = hpfrt + nModes=1 + scalingCoeff=10
 
 [NEKNEK]
 boundaryEXTOrder = 1
+ascentUseGlobalComm = true
 
 [PRESSURE]
 residualTol = 1e-04
@@ -20,7 +23,7 @@ residualTol = 1e-04
 [VELOCITY]
 residualTol = 1e-6
 density = 1.0
-viscosity = 1/1000
+viscosity = 1/2000
 boundaryTypeMap = interpolation, codedFixedValue
 solver=pcg+block
 
@@ -32,6 +35,6 @@ file = "inner.re2"
 solver = none
 
 [CASEDATA]
-# P_OMEGA = 0.375
 P_OMEGA = 0.110
 processAscentYamlFrequency = 2000
+turbine_session = 1

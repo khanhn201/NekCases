@@ -1,8 +1,17 @@
 // nekRS User Defined File
 //
 #include "udf.hpp"
+#include "nekAscent.hpp"
 
 static dfloat P_OMEGA;
+static int turbine_session;
+
+static int processAscentYamlFrequency;
+
+std::unique_ptr<iofld> iofld;
+
+#define ASCENT_UPDATE_SIGNAL SIGUSR1
+volatile sig_atomic_t processAscentYaml = 0;
 
 
 // filtering
@@ -310,11 +319,7 @@ void explicitFilterApply(std::string tag,  mesh_t *mesh, const dlong filterNc, c
 }
 
 
-
-
-
 #ifdef __okl__
-
 // Boundary conditions
 void codedFixedValueVelocity(bcData *bc)
 {
@@ -323,13 +328,33 @@ void codedFixedValueVelocity(bcData *bc)
       bc->v = bc->vinterp;
       bc->w = bc->winterp;
   }
+  if (bc->id == 2) {// mv Boundaries
+      bc->u = p_omega * bc->z;
+      bc->w = -p_omega * bc->x;
+      bc->v = 0.0;
+  }
   if (bc->id == 3) {// v Boundaries
       bc->u = 0.0;
       bc->w = 0.0;
       bc->v = -1.0;
   }
 }
+
 @kernel void userMeshVelocity(const dlong Ntotal,
+                              const dlong offset,
+                              @ restrict const dfloat *x,
+                              @ restrict const dfloat *y,
+                              @ restrict const dfloat *z,
+                              @ restrict dfloat *W)
+{
+  for (dlong n = 0; n < Ntotal; ++n; @tile(p_blockSize, @outer, @inner)) {
+    W[n + 0 * offset] = p_omega * z[n];
+    W[n + 2 * offset] = -p_omega * x[n];
+    W[n + 1 * offset] = 0.0;
+  }
+}
+
+@kernel void userMeshVelocityNull(const dlong Ntotal,
                               const dlong offset,
                               @ restrict const dfloat *x,
                               @ restrict const dfloat *y,
@@ -368,8 +393,10 @@ void userMeshPosition(int npts, occa::memory o_x, occa::memory o_y, occa::memory
     userMeshPositionKernel(npts, o_x, o_y, o_z, costheta, sintheta);
 }
 
-
-
+void userMeshPositionNull(int npts, occa::memory o_x, occa::memory o_y, occa::memory o_z, double timeDifference)
+{
+//    return;
+}
 
 void UDF_LoadKernels(deviceKernelProperties& kernelInfo)
 {
@@ -379,6 +406,8 @@ void UDF_LoadKernels(deviceKernelProperties& kernelInfo)
 void UDF_Setup0(MPI_Comm comm, setupAide &options)
 {
   platform->par->extract("casedata", "p_omega", P_OMEGA);
+  platform->par->extract("casedata", "turbine_session", turbine_session);
+  platform->par->extract("casedata", "processAscentYamlFrequency", processAscentYamlFrequency);
   platform->options.setArgs("CHECKPOINT READ USE CRYSTAL ROUTER", "TRUE");
 }
 
@@ -390,8 +419,43 @@ void UDF_Setup()
 {
   const bool movingMesh = platform->options.compareArgs("MOVING MESH", "TRUE");
   if (movingMesh) {
-    nrs->userMeshReferencePosition = &userMeshPosition;
+    nrs->userMeshReferencePosition = &userMeshPositionNull;
+    if (turbine_session == 2) nrs->userMeshReferencePosition = &userMeshPosition;
   }
+
+  auto mesh = nrs->mesh;
+#ifdef NEKRS_ASCENT_ENABLED 
+  {
+    auto handleSignal = [](int signal) {
+      processAscentYaml = 1;
+    };
+    std::signal(ASCENT_UPDATE_SIGNAL, handleSignal);
+
+    auto cds = nrs->cds;
+    auto meshV = nrs->mesh;
+    auto meshT = (nrs->cds) ? cds->mesh[0] : meshV;
+
+    deviceMemory<dfloat> o_ux(nrs->o_U.slice(0 * nrs->fieldOffset));
+    deviceMemory<dfloat> o_uy(nrs->o_U.slice(1 * nrs->fieldOffset));
+    deviceMemory<dfloat> o_uz(nrs->o_U.slice(2 * nrs->fieldOffset));
+    std::vector<deviceMemory<dfloat>> o_U{o_ux, o_uy, o_uz};
+    nekAscent::addVariable("velocity", meshV, o_U);
+
+    deviceMemory<dfloat> o_scalar0(cds->o_S.slice(cds->fieldOffsetScan[0])); 
+    nekAscent::addVariable("scalar00", meshT, std::vector<deviceMemory<dfloat>>{o_scalar0});
+
+
+    const int Nviz = std::min(2*mesh->N, 13);
+    const auto uniform = true;
+    nekAscent::setup(mesh, "ascent.yaml", Nviz, uniform, true, true);
+  }
+#endif
+  auto cds = nrs->cds;
+  auto meshT = (nrs->cds) ? cds->mesh[0] : mesh;
+  iofld = iofldFactory::create();
+  iofld->open(meshT, iofld::mode::write, "l2");
+  iofld->writeAttribute("polynomialOrder", std::to_string(meshT->N));
+  iofld->writeAttribute("outputMesh", "true");
 }
 
 void UDF_ExecuteStep(double time, int tstep)
@@ -399,29 +463,77 @@ void UDF_ExecuteStep(double time, int tstep)
   const bool movingMesh = platform->options.compareArgs("MOVING MESH", "TRUE");
   if (movingMesh) {
     auto *mesh = nrs->meshV;
-    userMeshVelocity(mesh->Nlocal, nrs->fieldOffset, mesh->o_x, mesh->o_y, mesh->o_z, mesh->o_U);
+    userMeshVelocityNull(mesh->Nlocal, nrs->fieldOffset, mesh->o_x, mesh->o_y, mesh->o_z, mesh->o_U);
+    if (turbine_session == 1) userMeshVelocity(mesh->Nlocal, nrs->fieldOffset, mesh->o_x, mesh->o_y, mesh->o_z, mesh->o_U);
   }
 
   auto meshV = nrs->mesh;
 
-// auto o_UX = nrs->o_U + 0 * nrs->fieldOffset;
-// auto o_UY = nrs->o_U + 1 * nrs->fieldOffset;
-// auto o_UZ = nrs->o_U + 2 * nrs->fieldOffset;
 
-//  deviceMemory<dfloat> o_UX(nrs->o_U.slice(0 * nrs->fieldOffset));
-//  deviceMemory<dfloat> o_UY(nrs->o_U.slice(1 * nrs->fieldOffset));
-//  deviceMemory<dfloat> o_UZ(nrs->o_U.slice(2 * nrs->fieldOffset));
-  
-//  explicitFilterApply("vel", meshV, 1, 0.01, o_UX);
-//  explicitFilterApply("vel", meshV, 1, 0.01, o_UY);
-//  explicitFilterApply("vel", meshV, 1, 0.01, o_UZ);
-//  explicitFilterApply("vel", meshV, 1, 0.01, nrs->o_P);
-
+#ifdef NEKRS_ASCENT_ENABLED
+  blockSignal(ASCENT_UPDATE_SIGNAL);
+  MPI_Bcast(const_cast<sig_atomic_t*>(&processAscentYaml), 1, MPI_INT, 0, platform->comm.mpiComm);
+  processAscentYaml = processAscentYaml || (tstep % processAscentYamlFrequency == 0 && tstep > 0);
+#endif
   if (nrs->checkpointStep) {
     nrs->copyToNek(time, tstep);
     nek::userchk();
     nrs->copyFromNek(time);
   }
+#ifdef NEKRS_ASCENT_ENABLED
+  if (processAscentYaml) {
+    nekAscent::run(time, tstep);
+    processAscentYaml = 0;
+  }
+  if (nrs->lastStep) nekAscent::finalize();
+  unblockSignal(ASCENT_UPDATE_SIGNAL);
+#endif
+
+  if (nrs->checkpointStep) {
+    // Filter lambda2
+    auto cds = nrs->cds;
+    auto meshT = (nrs->cds) ? cds->mesh[0] : meshV;
+    deviceMemory<dfloat> o_scalar0(cds->o_S.slice(cds->fieldOffsetScan[0], meshT->Nlocal)); 
+//    explicitFilterApply("l2", meshT, 1, 0.01, o_scalar0);
+    std::vector<dfloat> vec(meshT->Nlocal);
+    o_scalar0.copyTo(vec, meshT->Nlocal);
+
+    dfloat dt = nrs->dt[0];
+  
+    // select elements
+    auto elementFilter = [&]() 
+    { 
+      std::vector<int> elementFilter;
+      for (int e=0;e<meshT->Nelements;e++) {
+        dfloat vmin=1e30, vmax=-1e30;
+        for (int i=0;i<meshV->Np;i++) {
+          const int id = e * meshV->Np + i;
+          if (vec[id] + 5 > vmax) vmax = vec[id] + 1 ;
+          if (vec[id] + 5 < vmin) vmin = vec[id] + 1 ;
+        }
+        if (vmin*vmax < 0) elementFilter.push_back(e);
+      }
+      return elementFilter;
+    }();
+    iofld->writeElementFilter(elementFilter);
+
+    { // quantity of interest
+      // velocity
+      std::vector<occa::memory> o_iofldU;
+      o_iofldU.push_back(nrs->o_U.slice(0 * nrs->fieldOffset, nrs->mesh->Nlocal));
+      o_iofldU.push_back(nrs->o_U.slice(1 * nrs->fieldOffset, nrs->mesh->Nlocal));
+      o_iofldU.push_back(nrs->o_U.slice(2 * nrs->fieldOffset, nrs->mesh->Nlocal));
+      iofld->addVariable("velocity", o_iofldU);
+      iofld->addVariable("temperature", std::vector<deviceMemory<dfloat>>{o_scalar0});
+    }
+
+    iofld->addVariable("time", time);
+    iofld->process();
+  }
+
+  if (nrs->lastStep) iofld->close();
+
+
 }
 
 

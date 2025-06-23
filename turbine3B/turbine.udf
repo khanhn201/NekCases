@@ -1,5 +1,13 @@
 // nekRS User Defined File
 //
+#include <dirent.h>
+#include <fnmatch.h>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <iostream>
+
+
 #include "udf.hpp"
 #include "nekAscent.hpp"
 
@@ -423,6 +431,7 @@ void UDF_Setup()
     if (turbine_session == 2) nrs->userMeshReferencePosition = &userMeshPosition;
   }
 
+  bool renderCheckpoint = false;
   auto mesh = nrs->mesh;
 #ifdef NEKRS_ASCENT_ENABLED 
   {
@@ -450,6 +459,48 @@ void UDF_Setup()
     nekAscent::setup(mesh, "ascent.yaml", Nviz, uniform, true, true);
   }
 #endif
+  if (renderCheckpoint) {
+    const char *pattern = "inner0.f*";
+
+    std::vector<std::string> filenames;
+    DIR *dp = opendir(".");
+    struct dirent *entry;
+
+    if (dp == nullptr) {
+        perror("opendir");
+        exit(1);
+    }
+    while ((entry = readdir(dp))) {
+        if (fnmatch(pattern, entry->d_name, 0) == 0) {
+            filenames.emplace_back(entry->d_name);
+        }
+    }
+    closedir(dp);
+    std::sort(filenames.begin(), filenames.end());
+
+    int tstep = 0;
+    for (size_t i = 0; i < filenames.size(); ++i) {
+        const std::string& name = filenames[i];
+        tstep += 1;
+        double time = 0.0;
+        nrs->restartFromFiles(name);
+        platform->options.getArgs("START TIME", time);
+        blockSignal(ASCENT_UPDATE_SIGNAL);
+        MPI_Bcast(const_cast<sig_atomic_t*>(&processAscentYaml), 1, MPI_INT, 0, platform->comm.mpiComm);
+        processAscentYaml = true;
+        nekAscent::run(time, tstep);
+        if (processAscentYaml) {
+          nekAscent::run(time, tstep);
+          processAscentYaml = 0;
+        }
+        if (i == filenames.size() - 1) {
+            nekAscent::finalize();
+        }
+        unblockSignal(ASCENT_UPDATE_SIGNAL);
+    }
+
+    exit(0);
+  }
   auto cds = nrs->cds;
   auto meshT = (nrs->cds) ? cds->mesh[0] : mesh;
   iofld = iofldFactory::create();
@@ -463,8 +514,8 @@ void UDF_ExecuteStep(double time, int tstep)
   const bool movingMesh = platform->options.compareArgs("MOVING MESH", "TRUE");
   if (movingMesh) {
     auto *mesh = nrs->meshV;
-    userMeshVelocityNull(mesh->Nlocal, nrs->fieldOffset, mesh->o_x, mesh->o_y, mesh->o_z, mesh->o_U);
     if (turbine_session == 1) userMeshVelocity(mesh->Nlocal, nrs->fieldOffset, mesh->o_x, mesh->o_y, mesh->o_z, mesh->o_U);
+    if (turbine_session == 2) userMeshVelocityNull(mesh->Nlocal, nrs->fieldOffset, mesh->o_x, mesh->o_y, mesh->o_z, mesh->o_U);
   }
 
   auto meshV = nrs->mesh;
@@ -479,6 +530,10 @@ void UDF_ExecuteStep(double time, int tstep)
     nrs->copyToNek(time, tstep);
     nek::userchk();
     nrs->copyFromNek(time);
+//    auto cds = nrs->cds;
+//    auto meshT = (nrs->cds) ? cds->mesh[0] : meshV;
+//    deviceMemory<dfloat> o_scalar0(cds->o_S.slice(cds->fieldOffsetScan[0], meshT->Nlocal)); 
+//    explicitFilterApply("l2", meshT, 1, 0.01, o_scalar0);
   }
 #ifdef NEKRS_ASCENT_ENABLED
   if (processAscentYaml) {
@@ -494,7 +549,6 @@ void UDF_ExecuteStep(double time, int tstep)
     auto cds = nrs->cds;
     auto meshT = (nrs->cds) ? cds->mesh[0] : meshV;
     deviceMemory<dfloat> o_scalar0(cds->o_S.slice(cds->fieldOffsetScan[0], meshT->Nlocal)); 
-//    explicitFilterApply("l2", meshT, 1, 0.01, o_scalar0);
     std::vector<dfloat> vec(meshT->Nlocal);
     o_scalar0.copyTo(vec, meshT->Nlocal);
 

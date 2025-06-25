@@ -456,7 +456,7 @@ void UDF_Setup()
 
     const int Nviz = std::min(2*mesh->N, 13);
     const auto uniform = true;
-    nekAscent::setup(mesh, "ascent.yaml", Nviz, uniform, true, true);
+    nekAscent::setup(mesh, "../ascent.yaml", Nviz, uniform, true, false);
   }
 #endif
   if (renderCheckpoint) {
@@ -544,7 +544,8 @@ void UDF_ExecuteStep(double time, int tstep)
   unblockSignal(ASCENT_UPDATE_SIGNAL);
 #endif
 
-  if (nrs->checkpointStep) {
+  bool outputFiltered = false;
+  if (outputFiltered && nrs->checkpointStep) {
     // Filter lambda2
     auto cds = nrs->cds;
     auto meshT = (nrs->cds) ? cds->mesh[0] : meshV;

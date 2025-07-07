@@ -332,6 +332,7 @@ c----------------------------------------------------------------------
       real dd1(lx1*ly1*lz1*lelv)
       real dd2(lx1*ly1*lz1*lelv)
 
+      n = lx1*ly1*lz1*nelt
       call rone (h1,n)
       call rzero(h2,n)
       call izero(napprox,2)
@@ -362,20 +363,13 @@ c     corner displacement
         zd(k,1,1,1) = zd(k,1,1,1) + zd1(k,1,1,1)
       enddo
 
-c     call outpost(xd,yd,zd,bm1,mask,'   ')
-c     call add2(xm1,xd,n)
-c     call add2(ym1,yd,n)
-c     call add2(zm1,zd,n)
-c     call outpost(xd,yd,zd,bm1,t,'   ')
-c     call fix_geom !Reblend surface elements that have been projected
-
 c     main laplace loop
       alpha = 0.02
       tol     = 1.e-7
       maxit   = 800
       factor = 0.1
       
-      lapit = 0
+      lapit = 5
       do k=1,lapit
         call cheap_dist(dd1,1,'mv ')
         call cheap_dist(dd2,1,'int')
@@ -406,9 +400,6 @@ c       enddo
         do i=1,lx1*ly1*lz1*nelv
            h1(i) = 1+ 9*EXP(-dd1(i)/alpha)
         enddo
-        if (k.eq.lapit) then
-           factor = 1
-        endif
         factor = 1.0/lapit
         do j=1,lx1*ly1*lz1*nelv
            xd1(j,1,1,1) = xd(j,1,1,1)*factor
@@ -427,7 +418,7 @@ c       call outpost(xd1,yd1,zd1,bm1,h1,'   ')
         call add2(xm1,xd1,n)
         call add2(ym1,yd1,n)
         call add2(zm1,zd1,n)
-c       call outpost(xd1,yd1,zd1,bm1,h1,'   ')
+        call outpost(xd1,yd1,zd1,bm1,h1,'   ')
         call fix_geom !Reblend surface elements that have been projected
         if (nio.eq.0) write(6,*) 'Done project ', k, '/', lapit
       end do

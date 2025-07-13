@@ -262,8 +262,8 @@ C=======================================================================
       call dsop(mask,'*  ',lx1,ly1,lz1)  ! zero mask for any surface vertex
 
 
-      call projection_iter(xd1, yd1, zd1, mask) ! project outer cylinder
-      call projection_iter(xd, yd, zd, mask) ! project blade
+      call projection_iter(xd1, yd1, zd1, mask, 0.05) ! project outer cylinder
+      call projection_iter(xd, yd, zd, mask, 0.01) ! project blade
 
 
 c     call exitti('quit usrdat2$',n)
@@ -313,7 +313,7 @@ c     call outpost(xd1,yd1,zd1,nid,nid,'nid')
       return
       end
 c----------------------------------------------------------------------
-      subroutine projection_iter(xd, yd, zd, mask)
+      subroutine projection_iter(xd, yd, zd, mask, alpha)
       include 'SIZE'
       include 'TOTAL'
 
@@ -364,7 +364,6 @@ c     corner displacement
       enddo
 
 c     main laplace loop
-      alpha = 0.02
       tol     = 1.e-7
       maxit   = 800
       factor = 0.1
@@ -418,7 +417,7 @@ c       call outpost(xd1,yd1,zd1,bm1,h1,'   ')
         call add2(xm1,xd1,n)
         call add2(ym1,yd1,n)
         call add2(zm1,zd1,n)
-        call outpost(xd1,yd1,zd1,bm1,h1,'   ')
+c       call outpost(xd1,yd1,zd1,bm1,h1,'   ')
         call fix_geom !Reblend surface elements that have been projected
         if (nio.eq.0) write(6,*) 'Done project ', k, '/', lapit
       end do

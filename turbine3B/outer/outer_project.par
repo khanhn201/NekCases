@@ -1,16 +1,16 @@
 [GENERAL]
-polynomialOrder = 9
+polynomialOrder = 3
 #startFrom = "restart.fld"
-numSteps = 200000
-dt = 1e-5
+numSteps = 10000
+dt = 1e-4
 subCyclingSteps = 2
 timeStepper = tombo2
-writeInterval = 5000
-#startFrom = "./inner0.f00031"
-#startFrom = "./innergeo.f00000"
-startFrom = "./innerc1.f00000"
+writeInterval = 1000
+#startFrom = "./outer0.f00031"
+#startFrom = "./outergeo.f00000+refine=3"
+#startFrom = "./outerc2.f00000"
 
-
+usr = "./outer.usr"
 udf = "../turbine.udf"
 
 regularization = hpfrt + nModes=1 + scalingCoeff=10
@@ -21,24 +21,23 @@ ascentUseGlobalComm = true
 
 [PRESSURE]
 residualTol = 1e-04
-#coarsegriddiscretization = galerkin
 
 [VELOCITY]
 residualTol = 1e-6
 density = 1.0
-viscosity = 1/50000
-boundaryTypeMap = interpolation, codedFixedValue
+viscosity = 1/1000
+boundaryTypeMap = interpolation, zeroGradient, codedFixedValue, zeroValue
 solver=pcg+block
 
 [MESH]
 solver=user
-#refine=2
-file = "inner.re2"
+#refine=3
+file = "outer.re2"
 
 [SCALAR00]
 solver = none
 
 [CASEDATA]
 P_OMEGA = 0.110
-processAscentYamlFrequency = 5000
-turbine_session = 1
+processAscentYamlFrequency = 20000
+turbine_session = 2

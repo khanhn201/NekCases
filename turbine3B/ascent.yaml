@@ -20,7 +20,14 @@
         type: "contour"
         params:
           field: "scalar00"
-          iso_values: [-1]
+          iso_values: [-100.0]
+    pl3:
+      pipeline: "pl1"
+      f3:
+        type: "contour"
+        params:
+          field: "scalar00"
+          iso_values: [-200.0]
 -             
   action: "add_scenes"
   scenes:
@@ -39,21 +46,65 @@
           camera:
             position: [0.0, 150.0, 0.0]
             look_at: [0.0, 0.0, 0.0]
-            up: [0.0, 0.0, -1.0]
+            up: [0.0, 0.0, 1.0]
             zoom: 1.0
           image_prefix: "l2f_%06d"
           world_annotations: false
           screen_annotations: false
-          image_width: 2048
-          image_height: 2048
+          image_width: 8192
+          image_height: 8192
         r2:
           camera:
             position: [150.0, 0.0, 0.0]
             look_at: [0.0, 0.0, 0.0]
-            up: [0.0, 0.0, -1.0]
+            up: [0.0, 0.0, 1.0]
             zoom: 1.0
           image_prefix: "l2s_%06d"
           world_annotations: false
           screen_annotations: false
-          image_width: 2048
-          image_height: 2048
+          image_width: 8192
+          image_height: 8192
+        r3:
+          camera:
+            position: [150.0, 150.0, 0.0]
+            look_at: [0.0, 0.0, 0.0]
+            up: [0.0, 0.0, 1.0]
+            zoom: 1.0
+          image_prefix: "l2d_%06d"
+          world_annotations: false
+          screen_annotations: false
+          image_width: 8192
+          image_height: 8192
+        r4:
+          camera:
+            position: [150.0, 30.0, 0.0]
+            look_at: [0.0, 0.0, 0.0]
+            up: [0.0, 0.0, 1.0]
+            zoom: 1.0
+          image_prefix: "l2e_%06d"
+          world_annotations: false
+          screen_annotations: false
+          image_width: 8192
+          image_height: 8192
+    s2:
+      plots:
+        p1:
+          type: "pseudocolor"
+          field: "velocity_mag"
+          pipeline: "pl3"
+          color_table:
+            name: "Cool to Warm Extended"
+          min_value: 0.0
+          max_value: 2.0
+      renders:
+        r1:
+          camera:
+            position: [0.0, 150.0, 0.0]
+            look_at: [0.0, 0.0, 0.0]
+            up: [0.0, 0.0, 1.0]
+            zoom: 1.0
+          image_prefix: "l2f3_%06d"
+          world_annotations: false
+          screen_annotations: false
+          image_width: 8192
+          image_height: 8192

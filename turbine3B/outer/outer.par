@@ -1,13 +1,14 @@
 [GENERAL]
 polynomialOrder = 9
 #startFrom = "restart.fld"
-numSteps = 500000
-dt = 1e-4
-subCyclingSteps = 2000
+numSteps = 200000
+dt = 1e-5
+subCyclingSteps = 2
 timeStepper = tombo2
-writeInterval = 10
+writeInterval = 5000
 #startFrom = "./outer0.f00031"
-startFrom = "./outergeo.f00000"
+#startFrom = "./outergeo.f00000"
+startFrom = "./outerc1.f00000"
 
 udf = "../turbine.udf"
 
@@ -19,16 +20,18 @@ ascentUseGlobalComm = true
 
 [PRESSURE]
 residualTol = 1e-04
+#coarsegriddiscretization = galerkin
 
 [VELOCITY]
 residualTol = 1e-6
 density = 1.0
-viscosity = 1/2000
+viscosity = 1/50000
 boundaryTypeMap = interpolation, zeroGradient, codedFixedValue, zeroValue
 solver=pcg+block
 
 [MESH]
 solver=user
+#refine=2
 file = "outer.re2"
 
 [SCALAR00]
@@ -36,5 +39,5 @@ solver = none
 
 [CASEDATA]
 P_OMEGA = 0.110
-processAscentYamlFrequency = 2000
+processAscentYamlFrequency = 5000
 turbine_session = 2

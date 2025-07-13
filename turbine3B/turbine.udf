@@ -587,6 +587,7 @@ void UDF_ExecuteStep(double time, int tstep)
   }
 
   if (nrs->lastStep) iofld->close();
+  if (tstep > 0 && tstep % 100 == 0) platform->device.printMemoryUsage(platform->comm.mpiComm);
 
 
 }

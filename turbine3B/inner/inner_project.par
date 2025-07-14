@@ -31,7 +31,7 @@ boundaryTypeMap = interpolation, codedFixedValue
 solver=pcg+block
 
 [MESH]
-solver=user
+#solver=user
 #refine=3
 file = "inner.re2"
 
@@ -39,6 +39,6 @@ file = "inner.re2"
 solver = none
 
 [CASEDATA]
-P_OMEGA = 0.110
+P_OMEGA = 0.0
 processAscentYamlFrequency = 20000
 turbine_session = 1

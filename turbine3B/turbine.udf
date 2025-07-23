@@ -460,7 +460,8 @@ void UDF_Setup()
   }
 #endif
   if (renderCheckpoint) {
-    const char *pattern = "inner0.f*";
+    const char *dirPattern = "c*";
+    const char *filePattern = "*0.f*";
 
     std::vector<std::string> filenames;
     DIR *dp = opendir(".");
@@ -471,8 +472,18 @@ void UDF_Setup()
         exit(1);
     }
     while ((entry = readdir(dp))) {
-        if (fnmatch(pattern, entry->d_name, 0) == 0) {
-            filenames.emplace_back(entry->d_name);
+        if (fnmatch(dirPattern, entry->d_name, 0) == 0) {
+            std::string dirName = entry->d_name;
+            DIR *subdp = opendir(dirName.c_str());
+            if (!subdp) continue;
+
+            struct dirent *subentry;
+            while ((subentry = readdir(subdp))) {
+                if (fnmatch(filePattern, subentry->d_name, 0) == 0) {
+                    filenames.emplace_back(dirName + "/" + subentry->d_name);
+                }
+            }
+            closedir(subdp);
         }
     }
     closedir(dp);
@@ -588,7 +599,6 @@ void UDF_ExecuteStep(double time, int tstep)
 
   if (nrs->lastStep) iofld->close();
   if (tstep > 0 && tstep % 100 == 0) platform->device.printMemoryUsage(platform->comm.mpiComm);
-
 
 }
 

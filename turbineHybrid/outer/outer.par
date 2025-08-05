@@ -1,0 +1,61 @@
+[GENERAL]
+polynomialOrder = 9
+#startFrom = "restart.fld"
+numSteps = 300000
+dt = 5e-5
+subCyclingSteps = 3
+timeStepper = tombo2
+writeInterval = 5000
+#startFrom = "./outer0.f00031"
+#startFrom = "./outergeo.f00000"
+startFrom = "./outerc6.f00000"
+
+udf = "../turbine.udf"
+
+regularization = hpfrt + nModes=2 + scalingCoeff=10
+
+[PROBLEMTYPE]
+equation = navierStokes+variableViscosity
+
+[NEKNEK]
+boundaryEXTOrder = 1
+ascentUseGlobalComm = true
+
+[PRESSURE]
+smootherType = JAC+Chebyshev
+initialGuess = projectionAconj+nVector=20
+residualTol = 1e-04
+
+[VELOCITY]
+residualTol = 1e-6
+density = 1.0
+viscosity = 1/5000
+boundaryTypeMap = interpolation, zeroGradient, codedFixedValue, zeroValue
+solver=pcg+block
+
+[MESH]
+solver=user
+file = "outer.re2"
+
+[SCALAR00]
+solver = none
+boundaryTypeMap = interpolation, zeroGradient, codedFixedValue, codedFixedValue 
+residualTol = 1e-06
+rho = 1.0
+diffusivity = 1/5000
+
+[SCALAR01] # k
+boundaryTypeMap = interpolation, zeroGradient, codedFixedValue, codedFixedValue 
+residualTol = 1e-08
+
+[SCALAR02] # tau
+boundaryTypeMap = interpolation, zeroGradient, codedFixedValue, codedFixedValue 
+residualTol = 1e-06
+
+[SCALAR03] # lambda2
+solver = none
+
+[CASEDATA]
+P_OMEGA = 0.110
+processAscentYamlFrequency = 5000
+turbine_session = 2

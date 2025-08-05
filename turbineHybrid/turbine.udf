@@ -1,0 +1,775 @@
+// nekRS User Defined File
+//
+#include <dirent.h>
+#include <fnmatch.h>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <iostream>
+#include <stdio.h>
+#include <stdlib.h>
+#include <mpi.h>
+
+
+#include "udf.hpp"
+#include "RANSktau.hpp"
+#include "nekAscent.hpp"
+
+static dfloat P_OMEGA;
+static int turbine_session;
+static occa::memory o_ywd;
+deviceMemory<dfloat> o_ywd_dm;
+static occa::memory o_ywdInt;
+deviceMemory<dfloat> o_ywdInt_dm;
+
+static occa::memory o_wbID;
+static occa::memory o_intbID;
+static std::vector<dlong> wbID;
+static std::vector<dlong> intbID;
+
+static int processAscentYamlFrequency;
+
+std::unique_ptr<iofld> iofld;
+
+#define ASCENT_UPDATE_SIGNAL SIGUSR1
+volatile sig_atomic_t processAscentYaml = 0;
+
+
+// filtering
+
+// filter
+struct FilterContainer
+{
+  int nModes = 0;
+  double strength = 0.0;
+
+  mesh_t *mesh;
+  occa::memory o_filterRT;
+
+  bool setupCalled = false;
+};
+
+std::map<std::string, FilterContainer> filterMap;
+
+#ifdef __okl__
+
+// Tensor contraction: U = (fMT x fMT x fMT) U
+@kernel void filterTensor3(const dlong Nelements,
+                          @ restrict const dfloat *fMT,
+                          @ restrict dfloat *U)
+{
+  for (dlong e = 0; e < Nelements; ++e; @outer(0)) {
+    @shared dfloat s_U[p_Nq][p_Nq];
+    @shared dfloat s_FT[p_Nq][p_Nq];
+
+    @exclusive dfloat r_Un[p_Nq];
+    @exclusive dfloat r_U[p_Nq];
+
+    for (int j = 0; j < p_Nq; ++j; @inner(1)) {
+      for (int i = 0; i < p_Nq; ++i; @inner(0)) {
+        const int id = i + j * p_Nq;
+        s_FT[j][i] = fMT[id];
+
+#pragma unroll p_Nq
+        for (int k = 0; k < p_Nq; ++k)
+          r_Un[k] = 0.f;
+      }
+    }
+
+    @barrier();
+
+    // read and multiply in k
+    for (int j = 0; j < p_Nq; ++j; @inner(1)) {
+      for (int i = 0; i < p_Nq; ++i; @inner(0)) {
+#pragma unroll p_Nq
+        for (int k = 0; k < p_Nq; ++k) {
+          const dlong id = e * p_Np + k * p_Nq * p_Nq + j * p_Nq + i;
+          const dfloat uc = U[id];
+
+          // Could be hold for less global reads
+          r_U[k] = uc;
+
+#pragma unroll p_Nq
+          for (int n = 0; n < p_Nq; ++n) {
+            const dfloat Ik = s_FT[k][n];
+            r_Un[n] += Ik * uc;
+          }
+        }
+      }
+    }
+
+    @barrier();
+
+// loop around slices
+#pragma unroll p_Nq
+    for (int k = 0; k < p_Nq; ++k) {
+      // load slice to @shared
+      for (int j = 0; j < p_Nq; ++j; @inner(1))
+        for (int i = 0; i < p_Nq; ++i; @inner(0))
+          s_U[j][i] = r_Un[k];
+
+      @barrier();
+
+      for (int j = 0; j < p_Nq; ++j; @inner(1)) {
+        for (int i = 0; i < p_Nq; ++i; @inner(0)) {
+          r_Un[k] = 0.f;
+#pragma unroll p_Nq
+          for (int n = 0; n < p_Nq; n++) {
+            const dfloat Ii = s_FT[n][i];
+            r_Un[k] += Ii * s_U[j][n];
+          }
+        }
+      }
+
+      @barrier();
+      // load multiplied data to shared
+      for (int j = 0; j < p_Nq; ++j; @inner(1))
+        for (int i = 0; i < p_Nq; ++i; @inner(0))
+          s_U[j][i] = r_Un[k];
+
+      @barrier();
+
+      for (int j = 0; j < p_Nq; ++j; @inner(1)) {
+        for (int i = 0; i < p_Nq; ++i; @inner(0)) {
+          r_Un[k] = 0.f;
+
+#pragma unroll p_Nq
+          for (int n = 0; n < p_Nq; n++) {
+            const dfloat Ij = s_FT[n][j];
+            r_Un[k] += Ij * s_U[n][i];
+          }
+        }
+      }
+
+      @barrier();
+    }
+
+    for (int j = 0; j < p_Nq; ++j; @inner(1)) {
+      for (int i = 0; i < p_Nq; ++i; @inner(0)) {
+#pragma unroll p_Nq
+        for (int k = 0; k < p_Nq; ++k) {
+          const dlong id = e * p_Np + k * p_Nq * p_Nq + j * p_Nq + i;
+          U[id] = r_Un[k];
+        }
+      }
+    }
+
+  } // loop e
+} // func
+
+#endif
+
+void filterFunctionRelaxation1D_new(int Nmodes, int Nc, double wght, double *A) {
+  // zero matrix
+  for (int n = 0; n < Nmodes*Nmodes; n++) {
+    A[n] = 0.0;
+  }
+
+  // Set all diagonal to 1
+  for (int n = 0; n < Nmodes; n++) {
+    A[n * Nmodes + n] = 1.0;
+  }
+
+  int k0 = Nmodes - Nc;
+  for (int k = k0; k < Nmodes; k++) {
+    double amp = wght * ((k + 1.0 - k0) * (k + 1.0 - k0)) / (Nc * Nc);
+    A[k + Nmodes * k] = 1.0 - amp;
+  }
+}
+
+void legendre_poly(double *L, const double x, const int N)
+{
+   L[0] = 1.0;
+   L[1] = x;
+   for (int j = 2; j <= N; j++) {
+      const double dj = j;
+      L[j] = ( (2*dj-1) * x * L[j-1] - (j-1) * L[j-2] ) / dj;
+   }
+}
+
+void filterBubbleFunc1D(int N, int Np, double *r, double *V)
+{
+  auto Lj = (double *)malloc(Np * sizeof(double));
+
+  for (int j = 0; j <= N; j++) {
+    const double z = r[j];
+    legendre_poly(Lj, z, N);
+
+    V[0 * Np + j] = Lj[0];
+    V[1 * Np + j] = Lj[1];
+    for (int i = 2; i < Np; i++) {
+      V[i * Np + j] = Lj[i] - Lj[i-2];
+    }
+  }
+  free(Lj);
+}
+
+occa::memory lowPassFilterSetup_new(std::string tag, mesh_t *mesh, 
+                                    const dlong filterNc, const dfloat filterWght) {
+
+  const int verbose = platform->options.compareArgs("VERBOSE", "TRUE");
+
+  nekrsCheck(filterNc < 1,
+             platform->comm.mpiComm,
+             EXIT_FAILURE,
+             "%s: filterNc must be at least 1, but is set to %d\n",
+             tag.c_str(), filterNc);
+
+  nekrsCheck(filterWght < 0 || filterWght > 1,
+             platform->comm.mpiComm,
+             EXIT_FAILURE,
+             "%s: filterWght must in [0,1], but is set to %g\n",
+             tag.c_str(), filterWght);
+
+  // Construct Filter Function
+  int Nmodes = mesh->N + 1; // N+1, 1D GLL points
+
+  auto V = (double *)calloc(Nmodes * Nmodes, sizeof(double));
+  auto A = (double *)calloc(Nmodes * Nmodes, sizeof(double));
+
+  // Construct Filter Function
+  filterFunctionRelaxation1D_new(Nmodes, filterNc, filterWght, A); // Main difference
+
+  if (platform->comm.mpiRank == 0) {
+    printf("filt trn (rs) %5s:", tag.c_str());
+    for (int k = 0; k < Nmodes; k++) {
+      printf("%7.4f", A[k + Nmodes * k]);
+    }
+    printf("\n");
+  }
+
+  // Construct Vandermonde Matrix
+  {
+    auto r = (double *)malloc(mesh->Np * sizeof(double));
+    for (int i = 0; i < mesh->Np; i++) {
+      r[i] = mesh->r[i];
+    }
+//  filterVandermonde1D(mesh->N, Nmodes, r, V); // Legrendre Polyn.^T
+    filterBubbleFunc1D(mesh->N, Nmodes, r, V);  // bubble of Legendre
+    free(r);
+  }
+
+  // Invert the Vandermonde
+  int INFO;
+  int N = Nmodes;
+  int LWORK = N * N;
+  double *WORK = (double *)calloc(LWORK, sizeof(double));
+  int *IPIV = (int *)calloc(Nmodes + 1, sizeof(int));
+  double *iV = (double *)calloc(Nmodes * Nmodes, sizeof(double));
+
+  for (int n = 0; n < (Nmodes + 1); n++) {
+    IPIV[n] = 1;
+  }
+  for (int n = 0; n < Nmodes * Nmodes; ++n) {
+    iV[n] = V[n];
+  }
+
+  dgetrf_(&N, &N, (double *)iV, &N, IPIV, &INFO);
+  nekrsCheck(INFO, MPI_COMM_SELF, EXIT_FAILURE, "%s\n", "dgetrf failed");
+
+  dgetri_(&N, (double *)iV, &N, IPIV, (double *)WORK, &LWORK, &INFO);
+  nekrsCheck(INFO, MPI_COMM_SELF, EXIT_FAILURE, "%s\n", "dgetri failed");
+
+  // V*A*V^-1 in row major
+  char TRANSA = 'N';
+  char TRANSB = 'N';
+  double ALPHA = 1.0, BETA = 0.0;
+  int MD = Nmodes;
+  int ND = Nmodes;
+  int KD = Nmodes;
+  int LDA = Nmodes;
+  int LDB = Nmodes;
+
+  double *C = (double *)calloc(Nmodes * Nmodes, sizeof(double));
+
+  int LDC = Nmodes;
+
+  dgemm_(&TRANSA, &TRANSB, &MD, &ND, &KD, &ALPHA, A, &LDA, iV, &LDB, &BETA, C, &LDC);
+
+  TRANSA = 'N';
+  TRANSB = 'N';
+
+  dgemm_(&TRANSA, &TRANSB, &MD, &ND, &KD, &ALPHA, V, &LDA, C, &LDB, &BETA, A, &LDC);
+
+  auto o_A = platform->device.malloc<dfloat>(Nmodes * Nmodes);
+  {
+    auto tmp = (dfloat *)calloc(Nmodes * Nmodes, sizeof(dfloat));
+    for (int i = 0; i < Nmodes * Nmodes; i++) {
+      tmp[i] = A[i];
+    }
+    o_A.copyFrom(tmp, o_A.length());
+    free(tmp);
+  }
+
+  if (verbose && platform->comm.mpiRank == 0) {
+    for (int j = 0; j < Nmodes; j++) {
+      printf("filt mat (rs) %5s:", tag.c_str());
+      for (int i = 0; i < Nmodes; i++) {
+        printf("%11.4e", A[i + Nmodes * j]);
+      }
+      printf("\n");
+    }
+  }
+
+  free(A);
+  free(V);
+  free(C);
+  free(iV);
+  free(IPIV);
+  free(WORK);
+
+  return o_A;
+}
+
+void explicitFilterApply(std::string tag,  mesh_t *mesh, const dlong filterNc, const dfloat filterWght, occa::memory o_fld) {
+
+  FilterContainer m = filterMap[tag];
+
+  if (!m.setupCalled) {
+    m.mesh = mesh;
+    m.nModes = filterNc;
+    m.strength = filterWght;
+  
+    m.o_filterRT = lowPassFilterSetup_new(tag, mesh, filterNc, filterWght);
+    m.setupCalled = true;
+  
+    filterMap[tag] = m;
+  }
+
+  filterTensor3(m.mesh->Nelements, m.o_filterRT, o_fld);
+}
+
+
+#ifdef __okl__
+// Boundary conditions
+void codedFixedValueVelocity(bcData *bc)
+{
+  if (bc->id == 1) {// Int Boundaries
+      bc->u = bc->uinterp;
+      bc->v = bc->vinterp;
+      bc->w = bc->winterp;
+  }
+  if (bc->id == 2) {// mv Boundaries
+      bc->u = p_omega * bc->z;
+      bc->w = -p_omega * bc->x;
+      bc->v = 0.0;
+  }
+  if (bc->id == 3) {// v Boundaries
+      bc->u = 0.0;
+      bc->w = 0.0;
+      bc->v = -1.0;
+  }
+}
+
+@kernel void userMeshVelocity(const dlong Ntotal,
+                              const dlong offset,
+                              @ restrict const dfloat *x,
+                              @ restrict const dfloat *y,
+                              @ restrict const dfloat *z,
+                              @ restrict dfloat *W)
+{
+  for (dlong n = 0; n < Ntotal; ++n; @tile(p_blockSize, @outer, @inner)) {
+    W[n + 0 * offset] = p_omega * z[n];
+    W[n + 2 * offset] = -p_omega * x[n];
+    W[n + 1 * offset] = 0.0;
+  }
+}
+
+@kernel void userMeshVelocityNull(const dlong Ntotal,
+                              const dlong offset,
+                              @ restrict const dfloat *x,
+                              @ restrict const dfloat *y,
+                              @ restrict const dfloat *z,
+                              @ restrict dfloat *W)
+{
+  for (dlong n = 0; n < Ntotal; ++n; @tile(p_blockSize, @outer, @inner)) {
+    W[n + 0 * offset] = 0.0;
+    W[n + 2 * offset] = 0.0;
+    W[n + 1 * offset] = 0.0;
+  }
+}
+
+@kernel void userMeshPositionKernel(const dlong Ntotal,
+                      @ restrict dfloat *X,
+                      @ restrict dfloat *Y,
+                      @ restrict dfloat *Z,
+                      double costheta,
+                      double sintheta)
+{
+  for (dlong n = 0; n < Ntotal; ++n; @tile(p_blockSize, @outer, @inner)) {
+    const dfloat xc = X[n];
+    const dfloat zc = Z[n];
+    X[n] = xc*costheta + zc*sintheta;
+    Z[n] = -xc*sintheta + zc*costheta;
+  }
+}
+
+
+void codedFixedValueScalar(bcData *bc)
+{
+  bc->s = 0;
+  if (bc->id == 1) {// Int Boundaries
+      bc->s = bc->sinterp;
+  }
+}
+
+@kernel void setBIDFromIntHex3D(const dlong Nelements,
+                                const dlong nbID, // Number of boundary ids
+                                const dfloat *initialDist,
+                                const dlong *bID, // Boundary ids
+                                @ restrict const dlong*  neknekPoints,//nrs->neknek->o_pointMap()
+                                @ restrict const dlong *vmapM,
+                                @ restrict const int *EToBM,
+                                @ restrict dfloat *U)
+{
+  for (dlong e = 0; e < Nelements; e++; @outer(0)) {
+    // reduce over all element faces
+    for (int t = 0; t < p_blockSize; ++t; @inner(0)) {
+      if (t < p_Nfp) {
+        for (int f = 0; f < p_Nfaces; f++) {
+          const dlong bIDM = EToBM[f + p_Nfaces * e];
+
+          if (bIDM > 0) {
+            for (int ibID = 0; ibID < nbID; ibID++) {
+              if (bIDM == bID[ibID]) {
+                const int n = t + f * p_Nfp;
+                const dlong sid = e * p_Nfaces * p_Nfp + n;
+
+                const dlong idM = vmapM[sid];
+                const int neknekId = neknekPoints[idM];
+                U[idM] = initialDist[neknekId];
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+@kernel void setDistMin(const dlong N, @ restrict dfloat *a, @ restrict dfloat *b)
+{
+  for (dlong n = 0; n < N; ++n; @tile(p_blockSize, @outer, @inner)) {
+    a[n] = min(a[n],b[n]);
+  }
+}
+
+#endif
+
+void userMeshPosition(int npts, occa::memory o_x, occa::memory o_y, occa::memory o_z, double timeDifference)
+{
+    const dfloat thv = -timeDifference*P_OMEGA;
+    const dfloat costheta = cos(thv);
+    const dfloat sintheta = sin(thv);
+    userMeshPositionKernel(npts, o_x, o_y, o_z, costheta, sintheta);
+}
+
+void userMeshPositionNull(int npts, occa::memory o_x, occa::memory o_y, occa::memory o_z, double timeDifference)
+{
+//    return;
+}
+
+void UDF_LoadKernels(deviceKernelProperties& kernelInfo)
+{
+  kernelInfo.define("p_omega") = P_OMEGA;
+}
+
+void UDF_Setup0(MPI_Comm comm, setupAide &options)
+{
+  platform->par->extract("casedata", "p_omega", P_OMEGA);
+  platform->par->extract("casedata", "turbine_session", turbine_session);
+  platform->par->extract("casedata", "processAscentYamlFrequency", processAscentYamlFrequency);
+  platform->options.setArgs("CHECKPOINT READ USE CRYSTAL ROUTER", "TRUE");
+}
+
+
+void userq(double time)
+{
+  RANSktau::updateSourceTerms();
+}
+
+
+void uservp(double time)
+{
+  auto mesh = nrs->mesh;
+  auto cds = nrs->cds;
+
+  dfloat conductivity;
+  platform->options.getArgs("SCALAR00 DIFFUSIVITY", conductivity);
+  const dfloat Pr_t = 0.7;
+  auto o_mue_t = RANSktau::o_mue_t();
+  auto o_temp_mue = cds->o_diff + 0 * cds->fieldOffset[0];
+  platform->linAlg->fill(mesh->Nlocal, 1.0, o_temp_mue);
+  platform->linAlg->axpby(mesh->Nlocal, 1 / Pr_t, o_mue_t, conductivity, o_temp_mue);
+}
+
+void UDF_Setup()
+{
+  nrs->userProperties = &uservp;
+  nrs->userScalarSource = &userq;
+
+
+  auto mesh = nrs->mesh;
+  const auto ktauFieldStart = 1;
+
+  std::vector<dfloat> U(mesh->dim * nrs->fieldOffset, 0.0);
+  std::vector<dfloat> s0(mesh->Nlocal, 0.0);
+  std::vector<dfloat> k(mesh->Nlocal, 0.0);
+  std::vector<dfloat> tau(mesh->Nlocal, 0.0);
+
+  int setIC = 0;
+  if (setIC) {
+    auto cds = nrs->cds;
+    for(int n = 0; n < mesh->Nlocal; n++) {
+      U[n + 0 * nrs->fieldOffset] = 0;
+      U[n + 1 * nrs->fieldOffset] = -1;
+      U[n + 2 * nrs->fieldOffset] = 0;
+      s0[n] = 1.0;
+      k[n] = 0.01; 
+      tau[n] = 0.1;
+    }
+//    nrs->o_U.copyFrom(U.data(), U.size());
+    nrs->cds->o_S.copyFrom(s0.data(), s0.size(), cds->fieldOffsetScan[0]); 
+    nrs->cds->o_S.copyFrom(k.data(), k.size(), cds->fieldOffsetScan[ktauFieldStart]); 
+    nrs->cds->o_S.copyFrom(tau.data(), tau.size(), cds->fieldOffsetScan[ktauFieldStart + 1]); 
+  }
+
+
+  for (auto &[key, bcID] : bcMap::map()) {
+    const auto field = key.first;
+    if (field == "velocity") {
+      if (bcID == bcMap::bcTypeW || (key.second == 1 && bcID != bcMap::bcTypeO)) {
+        wbID.push_back(key.second + 1);
+      }
+      if (bcID == bcMap::bcTypeINT) {
+        intbID.push_back(key.second + 1);
+      }
+    }
+  }
+  o_wbID = platform->device.malloc<int>(wbID.size(), wbID.data());
+  o_intbID = platform->device.malloc<int>(intbID.size(), intbID.data());
+
+
+
+  std::string model = "sst+ddes";
+  RANSktau::setup(ktauFieldStart, model);
+
+
+  const bool movingMesh = platform->options.compareArgs("MOVING MESH", "TRUE");
+  if (movingMesh) {
+    nrs->userMeshReferencePosition = &userMeshPositionNull;
+    if (turbine_session == 2) nrs->userMeshReferencePosition = &userMeshPosition;
+  }
+
+  bool renderCheckpoint = false;
+#ifdef NEKRS_ASCENT_ENABLED 
+  {
+    auto handleSignal = [](int signal) {
+      processAscentYaml = 1;
+    };
+    std::signal(ASCENT_UPDATE_SIGNAL, handleSignal);
+
+    auto cds = nrs->cds;
+    auto meshV = nrs->mesh;
+    auto meshT = (nrs->cds) ? cds->mesh[0] : meshV;
+
+    deviceMemory<dfloat> o_ux(nrs->o_U.slice(0 * nrs->fieldOffset));
+    deviceMemory<dfloat> o_uy(nrs->o_U.slice(1 * nrs->fieldOffset));
+    deviceMemory<dfloat> o_uz(nrs->o_U.slice(2 * nrs->fieldOffset));
+    std::vector<deviceMemory<dfloat>> o_U{o_ux, o_uy, o_uz};
+    nekAscent::addVariable("velocity", meshV, o_U);
+
+    deviceMemory<dfloat> o_scalar0(cds->o_S.slice(cds->fieldOffsetScan[3])); 
+    nekAscent::addVariable("scalar00", meshT, std::vector<deviceMemory<dfloat>>{o_scalar0});
+
+
+    const int Nviz = std::min(2*mesh->N, 13);
+    const auto uniform = true;
+    nekAscent::setup(mesh, "../ascent.yaml", Nviz, uniform, true, false);
+  }
+#endif
+  if (renderCheckpoint) {
+    const char *dirPattern = "c*";
+    const char *filePattern = "*0.f*";
+
+    std::vector<std::string> filenames;
+    DIR *dp = opendir(".");
+    struct dirent *entry;
+
+    if (dp == nullptr) {
+        perror("opendir");
+        exit(1);
+    }
+    while ((entry = readdir(dp))) {
+        if (fnmatch(dirPattern, entry->d_name, 0) == 0) {
+            std::string dirName = entry->d_name;
+            DIR *subdp = opendir(dirName.c_str());
+            if (!subdp) continue;
+
+            struct dirent *subentry;
+            while ((subentry = readdir(subdp))) {
+                if (fnmatch(filePattern, subentry->d_name, 0) == 0) {
+                    filenames.emplace_back(dirName + "/" + subentry->d_name);
+                }
+            }
+            closedir(subdp);
+        }
+    }
+    closedir(dp);
+    std::sort(filenames.begin(), filenames.end());
+
+    int tstep = 0;
+    for (size_t i = 0; i < filenames.size(); ++i) {
+        const std::string& name = filenames[i];
+        tstep += 1;
+        double time = 0.0;
+        nrs->restartFromFiles(name);
+        platform->options.getArgs("START TIME", time);
+        blockSignal(ASCENT_UPDATE_SIGNAL);
+        MPI_Bcast(const_cast<sig_atomic_t*>(&processAscentYaml), 1, MPI_INT, 0, platform->comm.mpiComm);
+        processAscentYaml = true;
+        nekAscent::run(time, tstep);
+        if (processAscentYaml) {
+          nekAscent::run(time, tstep);
+          processAscentYaml = 0;
+        }
+        if (i == filenames.size() - 1) {
+            nekAscent::finalize();
+        }
+        unblockSignal(ASCENT_UPDATE_SIGNAL);
+    }
+
+    exit(0);
+  }
+  auto cds = nrs->cds;
+  auto meshT = (nrs->cds) ? cds->mesh[0] : mesh;
+  iofld = iofldFactory::create();
+  iofld->open(meshT, iofld::mode::write, "l2");
+  iofld->writeAttribute("polynomialOrder", std::to_string(meshT->N));
+  iofld->writeAttribute("outputMesh", "true");
+}
+
+void UDF_ExecuteStep(double time, int tstep)
+{
+  const bool movingMesh = platform->options.compareArgs("MOVING MESH", "TRUE");
+  if (movingMesh) {
+    auto *mesh = nrs->meshV;
+    if (turbine_session == 1) userMeshVelocity(mesh->Nlocal, nrs->fieldOffset, mesh->o_x, mesh->o_y, mesh->o_z, mesh->o_U);
+    if (turbine_session == 2) userMeshVelocityNull(mesh->Nlocal, nrs->fieldOffset, mesh->o_x, mesh->o_y, mesh->o_z, mesh->o_U);
+  }
+
+  auto meshV = nrs->mesh;
+
+
+#ifdef NEKRS_ASCENT_ENABLED
+  blockSignal(ASCENT_UPDATE_SIGNAL);
+  MPI_Bcast(const_cast<sig_atomic_t*>(&processAscentYaml), 1, MPI_INT, 0, platform->comm.mpiComm);
+  processAscentYaml = processAscentYaml || (tstep % processAscentYamlFrequency == 0 && tstep > 0);
+#endif
+  if (nrs->checkpointStep) {
+    nrs->copyToNek(time, tstep);
+    nek::userchk();
+    nrs->copyFromNek(time);
+//    auto cds = nrs->cds;
+//    auto meshT = (nrs->cds) ? cds->mesh[0] : meshV;
+//    deviceMemory<dfloat> o_scalar0(cds->o_S.slice(cds->fieldOffsetScan[0], meshT->Nlocal)); 
+//    explicitFilterApply("l2", meshT, 1, 0.01, o_scalar0);
+  }
+#ifdef NEKRS_ASCENT_ENABLED
+  if (processAscentYaml) {
+    nekAscent::run(time, tstep);
+    processAscentYaml = 0;
+  }
+  if (nrs->lastStep) nekAscent::finalize();
+  unblockSignal(ASCENT_UPDATE_SIGNAL);
+#endif
+
+  bool outputFiltered = false;
+  if (outputFiltered && nrs->checkpointStep) {
+    // Filter lambda2
+    auto cds = nrs->cds;
+    auto meshT = (nrs->cds) ? cds->mesh[0] : meshV;
+    deviceMemory<dfloat> o_scalar0(cds->o_S.slice(cds->fieldOffsetScan[0], meshT->Nlocal)); 
+    std::vector<dfloat> vec(meshT->Nlocal);
+    o_scalar0.copyTo(vec, meshT->Nlocal);
+
+    dfloat dt = nrs->dt[0];
+  
+    // select elements
+    auto elementFilter = [&]() 
+    { 
+      std::vector<int> elementFilter;
+      for (int e=0;e<meshT->Nelements;e++) {
+        dfloat vmin=1e30, vmax=-1e30;
+        for (int i=0;i<meshV->Np;i++) {
+          const int id = e * meshV->Np + i;
+          if (vec[id] + 5 > vmax) vmax = vec[id] + 1 ;
+          if (vec[id] + 5 < vmin) vmin = vec[id] + 1 ;
+        }
+        if (vmin*vmax < 0) elementFilter.push_back(e);
+      }
+      return elementFilter;
+    }();
+    iofld->writeElementFilter(elementFilter);
+
+    { // quantity of interest
+      // velocity
+      std::vector<occa::memory> o_iofldU;
+      o_iofldU.push_back(nrs->o_U.slice(0 * nrs->fieldOffset, nrs->mesh->Nlocal));
+      o_iofldU.push_back(nrs->o_U.slice(1 * nrs->fieldOffset, nrs->mesh->Nlocal));
+      o_iofldU.push_back(nrs->o_U.slice(2 * nrs->fieldOffset, nrs->mesh->Nlocal));
+      iofld->addVariable("velocity", o_iofldU);
+      iofld->addVariable("temperature", std::vector<deviceMemory<dfloat>>{o_scalar0});
+    }
+
+    iofld->addVariable("time", time);
+    iofld->process();
+  }
+
+  if (nrs->lastStep) iofld->close();
+  if (tstep > 0 && tstep % 100 == 0) platform->device.printMemoryUsage(platform->comm.mpiComm);
+
+
+
+  if ( tstep % 100 == 0) {
+    auto mesh = nrs->mesh;
+    o_ywd = mesh->minDistance(wbID.size(), o_wbID, "cheap_dist");
+    o_ywd_dm = deviceMemory<dfloat>(o_ywd);
+  
+    auto o_ywdOut = platform->device.malloc<dfloat>(nrs->neknek->fieldOffset());
+    nrs->neknek->interpolator->eval(1, nrs->neknek->fieldOffset(), o_ywd, nrs->neknek->fieldOffset(), o_ywdOut);
+  
+    auto o_dist = platform->device.malloc<dfloat>(mesh->Nlocal);
+    platform->linAlg->fill(mesh->Nlocal, 0.0, o_dist);
+    
+    // as defined in nek5000 cheap_dist
+    const auto largeNum = 100000.0;
+    platform->linAlg->fill(mesh->Nlocal, largeNum, o_dist);
+    setBIDFromIntHex3D(nrs->mesh->Nelements,
+                       intbID.size(),
+                       o_ywdOut,
+                       o_intbID,
+                       nrs->neknek->o_pointMap(),
+                       nrs->mesh->o_vmapM,
+                       nrs->mesh->o_EToB,
+                       o_dist);
+  
+  
+    o_ywdInt = nrs->mesh->minDistance(intbID.size(), o_intbID, "cheap_dist", 10000, o_dist);
+    o_ywdInt_dm = deviceMemory<dfloat>(o_ywdInt);
+    setDistMin(mesh->Nlocal, o_ywd, o_ywdInt);
+  
+  
+    static bool firstTime = false;
+    if (!firstTime){
+      nrs->addUserCheckpointField("scalar04", std::vector<deviceMemory<dfloat>>{o_ywdInt_dm});
+      nrs->addUserCheckpointField("scalar05", std::vector<deviceMemory<dfloat>>{o_ywd_dm});
+      firstTime = true;
+    }
+  }
+
+  RANSktau::updateProperties(o_ywd);
+
+}
+
+

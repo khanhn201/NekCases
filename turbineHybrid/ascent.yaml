@@ -1,0 +1,139 @@
+- 
+  action: "add_pipelines"
+  pipelines:
+    pl1:
+      f1:
+        type: "composite_vector"
+        params:
+          field1: "velocity_x"
+          field2: "velocity_y"
+          field3: "velocity_z"
+          output_name: "my_vel"
+      f2:
+        type: "vector_magnitude"
+        params:
+          field: "my_vel"
+          output_name: "velocity_mag"
+    pl2:
+      pipeline: "pl1"
+      f3:
+        type: "contour"
+        params:
+          field: "scalar00"
+          iso_values: [-1.0]
+    pl3:
+      pipeline: "pl1"
+      f3:
+        type: "contour"
+        params:
+          field: "scalar00"
+          iso_values: [-0.5]
+    pl4:
+      pipeline: "pl1"
+      f3:
+        type: "contour"
+        params:
+          field: "scalar00"
+          iso_values: [-0.1]
+-             
+  action: "add_scenes"
+  scenes:
+    s1:
+      plots:
+        p1:
+          type: "pseudocolor"
+          field: "velocity_mag"
+          pipeline: "pl2"
+          color_table:
+            name: "Cool to Warm Extended"
+          min_value: 0.0
+          max_value: 2.0
+      renders:
+        r1:
+          camera:
+            position: [0.0, 150.0, 0.0]
+            look_at: [0.0, 0.0, 0.0]
+            up: [0.0, 0.0, 1.0]
+            zoom: 1.0
+          image_prefix: "l2f_%06d"
+          world_annotations: false
+          screen_annotations: false
+          image_width: 4096
+          image_height: 4096
+        r2:
+          camera:
+            position: [150.0, 0.0, 0.0]
+            look_at: [0.0, 0.0, 0.0]
+            up: [0.0, 0.0, 1.0]
+            zoom: 1.0
+          image_prefix: "l2s_%06d"
+          world_annotations: false
+          screen_annotations: false
+          image_width: 4096
+          image_height: 4096
+        r3:
+          camera:
+            position: [150.0, 150.0, 0.0]
+            look_at: [0.0, 0.0, 0.0]
+            up: [0.0, 0.0, 1.0]
+            zoom: 1.0
+          image_prefix: "l2d_%06d"
+          world_annotations: false
+          screen_annotations: false
+          image_width: 4096
+          image_height: 4096
+        r4:
+          camera:
+            position: [150.0, 30.0, 0.0]
+            look_at: [0.0, 0.0, 0.0]
+            up: [0.0, 0.0, 1.0]
+            zoom: 1.0
+          image_prefix: "l2e_%06d"
+          world_annotations: false
+          screen_annotations: false
+          image_width: 4096
+          image_height: 4096
+    s2:
+      plots:
+        p1:
+          type: "pseudocolor"
+          field: "velocity_mag"
+          pipeline: "pl3"
+          color_table:
+            name: "Cool to Warm Extended"
+          min_value: 0.0
+          max_value: 2.0
+      renders:
+        r1:
+          camera:
+            position: [0.0, 150.0, 0.0]
+            look_at: [0.0, 0.0, 0.0]
+            up: [0.0, 0.0, 1.0]
+            zoom: 1.0
+          image_prefix: "l2f3_%06d"
+          world_annotations: false
+          screen_annotations: false
+          image_width: 4096
+          image_height: 4096
+    s3:
+      plots:
+        p1:
+          type: "pseudocolor"
+          field: "velocity_mag"
+          pipeline: "pl4"
+          color_table:
+            name: "Cool to Warm Extended"
+          min_value: 0.0
+          max_value: 2.0
+      renders:
+        r1:
+          camera:
+            position: [0.0, 150.0, 0.0]
+            look_at: [0.0, 0.0, 0.0]
+            up: [0.0, 0.0, 1.0]
+            zoom: 1.0
+          image_prefix: "l2f4_%06d"
+          world_annotations: false
+          screen_annotations: false
+          image_width: 4096
+          image_height: 4096

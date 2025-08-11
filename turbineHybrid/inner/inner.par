@@ -1,14 +1,15 @@
 [GENERAL]
-polynomialOrder = 9
+polynomialOrder = 7
 #startFrom = "restart.fld"
 numSteps = 300000
-dt = 5e-5
+dt = 2e-4
 subCyclingSteps = 3
 timeStepper = tombo2
 writeInterval = 5000
 #startFrom = "./inner0.f00031"
 #startFrom = "./innergeo.f00000"
-startFrom = "./innerc6.f00000"
+startFrom = "./innerdc6.f00000"
+#startFrom = "./innerc3.f00000"
 
 
 udf = "../turbine.udf"
@@ -32,12 +33,13 @@ residualTol = 1e-04
 [VELOCITY]
 residualTol = 1e-6
 density = 1.0
-viscosity = 1/5000
+viscosity = 1/10000
 boundaryTypeMap = interpolation, codedFixedValue
 solver=pcg+block
 
 [MESH]
 solver=user
+refine=2
 file = "inner.re2"
 
 [SCALAR00]
@@ -45,7 +47,7 @@ solver = none
 boundaryTypeMap = interpolation, codedFixedValue 
 residualTol = 1e-06
 rho = 1.0
-diffusivity = 1/5000
+diffusivity = 1/10000
 
 [SCALAR01] # k
 boundaryTypeMap = interpolation, codedFixedValue 

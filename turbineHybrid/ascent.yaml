@@ -26,15 +26,8 @@
       f3:
         type: "contour"
         params:
-          field: "scalar00"
-          iso_values: [-0.5]
-    pl4:
-      pipeline: "pl1"
-      f3:
-        type: "contour"
-        params:
-          field: "scalar00"
-          iso_values: [-0.1]
+          field: "Qcriterion"
+          iso_values: [-10.0]
 -             
   action: "add_scenes"
   scenes:
@@ -110,29 +103,40 @@
             look_at: [0.0, 0.0, 0.0]
             up: [0.0, 0.0, 1.0]
             zoom: 1.0
-          image_prefix: "l2f3_%06d"
+          image_prefix: "qf_%06d"
           world_annotations: false
           screen_annotations: false
           image_width: 4096
           image_height: 4096
-    s3:
-      plots:
-        p1:
-          type: "pseudocolor"
-          field: "velocity_mag"
-          pipeline: "pl4"
-          color_table:
-            name: "Cool to Warm Extended"
-          min_value: 0.0
-          max_value: 2.0
-      renders:
-        r1:
+        r2:
           camera:
-            position: [0.0, 150.0, 0.0]
+            position: [150.0, 0.0, 0.0]
             look_at: [0.0, 0.0, 0.0]
             up: [0.0, 0.0, 1.0]
             zoom: 1.0
-          image_prefix: "l2f4_%06d"
+          image_prefix: "qs_%06d"
+          world_annotations: false
+          screen_annotations: false
+          image_width: 4096
+          image_height: 4096
+        r3:
+          camera:
+            position: [150.0, 150.0, 0.0]
+            look_at: [0.0, 0.0, 0.0]
+            up: [0.0, 0.0, 1.0]
+            zoom: 1.0
+          image_prefix: "qd_%06d"
+          world_annotations: false
+          screen_annotations: false
+          image_width: 4096
+          image_height: 4096
+        r4:
+          camera:
+            position: [150.0, 30.0, 0.0]
+            look_at: [0.0, 0.0, 0.0]
+            up: [0.0, 0.0, 1.0]
+            zoom: 1.0
+          image_prefix: "qe_%06d"
           world_annotations: false
           screen_annotations: false
           image_width: 4096

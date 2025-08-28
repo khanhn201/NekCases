@@ -23,6 +23,7 @@ static occa::memory o_ywdInt;
 deviceMemory<dfloat> o_ywdInt_dm;
 deviceMemory<dfloat> o_qcriterion;
 
+deviceMemory<dfloat> o_cfl_dm;
 static occa::memory o_wbID;
 static occa::memory o_intbID;
 static std::vector<dlong> wbID;
@@ -422,7 +423,7 @@ void UDF_ExecuteStep(double time, int tstep)
       cfl_setup();
       cflSetupCalled = false;
     }
-    dfloat cflThreshold = 4.0; // used to dump element > this CFL
+    dfloat cflThreshold = 0.5; // used to dump element > this CFL
 
     dfloat dt = nrs->dt[0];
     auto mesh = nrs->mesh;
@@ -433,12 +434,7 @@ void UDF_ExecuteStep(double time, int tstep)
     auto scratch = (dfloat *)h_scratch.ptr();
     o_cfl.copyTo(scratch);
 
-    dfloat cfl = 0;
-    for (dlong n = 0; n < mesh->Nelements; ++n) {
-      cfl = std::max(cfl, scratch[n]);
-    }
   
-    MPI_Allreduce(MPI_IN_PLACE, &cfl, 1, MPI_DFLOAT, MPI_MAX, platform->comm.mpiComm);
     auto elementFilter = [&]() 
     { 
       std::vector<int> elementFilter;
@@ -448,6 +444,7 @@ void UDF_ExecuteStep(double time, int tstep)
       return elementFilter;
     }();
     iofld->writeElementFilter(elementFilter);
+
 
     // Filter lambda2
 //    auto cds = nrs->cds;
@@ -473,7 +470,23 @@ void UDF_ExecuteStep(double time, int tstep)
 //      }
 //      return elementFilter;
 //    }();
-    iofld->writeElementFilter(elementFilter);
+//    iofld->writeElementFilter(elementFilter);
+
+
+
+
+    auto meshT = (nrs->cds) ? nrs->cds->mesh[0] : meshV;
+    std::vector<dfloat> cfl_vec;
+    cfl_vec.reserve(meshT->Nlocal);
+
+    for (int e=0;e<meshT->Nelements;e++) {
+      for (int i=0;i<meshV->Np;i++) {
+        const int id = e * meshV->Np + i;
+        cfl_vec[id] = scratch[e];
+      }
+    }
+    o_cfl_dm.resize(meshT->Nlocal);
+    o_cfl_dm.copyFrom(cfl_vec.data(), cfl_vec.size());
 
     { // quantity of interest
       // velocity
@@ -482,7 +495,7 @@ void UDF_ExecuteStep(double time, int tstep)
       o_iofldU.push_back(nrs->o_U.slice(1 * nrs->fieldOffset, nrs->mesh->Nlocal));
       o_iofldU.push_back(nrs->o_U.slice(2 * nrs->fieldOffset, nrs->mesh->Nlocal));
       iofld->addVariable("velocity", o_iofldU);
-//      iofld->addVariable("temperature", std::vector<deviceMemory<dfloat>>{o_scalar0});
+      iofld->addVariable("scalar00", std::vector<deviceMemory<dfloat>>{o_cfl_dm});
     }
 
     iofld->addVariable("time", time);

@@ -184,8 +184,8 @@ c-----------------------------------------------------------------------
       uy = 0.0
       uz = 0.0
 
-      phix = 8.0 + xx
-      phiy = 4.0 - yy
+      phix = 1.0 - xx
+      phiy = 1.0 - yy
       temp = min(phix,phiy)
       if(ifield.eq.ifld_tls .or. ifield.eq.ifld_tlsr)then
         continue
@@ -334,12 +334,22 @@ c-----------------------------------------------------------------------
      $                ifld_tls,ifld_tlsr 
       integer ifld_cls,ifld_clsr
       integer ifld_tls,ifld_tlsr
+      integer n
+      real scale
 
       ifld_cls = 2
       ifld_tls = 3
       ifld_clsr = 4
       ifld_tlsr = 5
 
+      n = lx1*ly1*lz1*nelt
+      call cadd(xm1,-1.0,n)
+      call cadd(zm1,1.0,n)
+
+      scale = 0.25
+      call cmult(xm1,-scale,n)
+      call cmult(ym1,scale,n)
+      call cmult(zm1,-scale,n)
 
       return
       end
@@ -362,7 +372,7 @@ c-----------------------------------------------------------------------
       integer ifdebug, ifixCLSbdry
       real farfield
 
-      eps = 1.5/(lx1-1.0)
+      eps = 1.7/(lx1-1.0)
       ifdebug = 0
       ifixCLSbdry = 0
       farfield = 0.0

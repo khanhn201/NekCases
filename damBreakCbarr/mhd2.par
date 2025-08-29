@@ -2,13 +2,13 @@
 # nek parameter file
 #
 [GENERAL]
-#startFrom = dam.fld
+#startFrom = "mhd2c1.f00000"
 #stopAt = numSteps
 stopAt = endTime
 #numSteps = 500000 #12000 #1000 #16000 #4000 #400 #400 #200000
 endTime = 20 #10e-4
 
-dt = 1.250e-04
+dt = 2.5e-04
 timeStepper = bdf2 #With bdf2 SF does not work well
 variabledt = yes
 targetCFL = 0.1
@@ -19,7 +19,7 @@ writeInterval = 0.1
 
 userParam01 = 0.025     #Freq of TLSR
 userParam02 = 0.0025      #Freq of CLSR
-userParam03 = 2    #Pressure extrapolation order
+userParam03 = 1    #Pressure extrapolation order
 
 #filtering = hpfrt
 #filterModes = 1

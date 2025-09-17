@@ -14,8 +14,13 @@ c-----------------------------------------------------------------------
       integer ifld_cls,ifld_clsr
       integer ifld_tls,ifld_tlsr
 
-      real Re, We, Fr, rhoratio, muratio
-      real udim, charl, rhol, mul, gdim, gamm
+      common /dimen/ Re,We,Fr,charl,udim
+      real Re, We, Fr, charl, udim
+
+      common /excite/ omega, magnitude
+      real omega, magnitude
+
+      real rhol, mul, gdim, gamm
       real nul, nug
       real rhog,mug
       real psi
@@ -23,27 +28,23 @@ c-----------------------------------------------------------------------
       save icalld
       data icalld /0/
 
-      common /dimen/ Re,We,Fr,charl,udim
-
       e = gllel(eg)
 
-!     These routine is not called by external solver
-!     To Do: change the flow, so that this routine is called
-!     similar to RANS. Will avoid confusion
 
-      gdim = 9.81
-      rhol = 998.0
-      rhog = 826.0
-      mul = 0.000998
-      mug = 0.002478
-      nul = mul/rhol
+      gdim = 9.81              ! gravity
+      rhol = 998.0             ! density of bottom layer
+      rhog = 826.0             ! density of top layer
+      mul = 0.000998           ! dynamic viscosity of bottom layer
+      mug = 0.002478           ! dynamic viscosity of top layer
+      charl = 0.05             ! height of the bottom layer
+      gamm = 0.018             ! surface tension
+      udim = sqrt(gdim*charl)  ! characteristic velocity
+      udim = omega*magnitude   ! could also be omega*magnitude of the excitation
+
+      nul = mul/rhol 
       nug = mug/rhog
-      charl = 0.05
-      udim = sqrt(gdim*charl)
-
       Re = rhol*udim*charl/mul
       Fr = udim**2.0/(gdim*charl)
-      gamm = 0.018
       We = charl*rhol*udim**2.0/gamm
 
       if(ifield.eq.1)then
@@ -78,9 +79,13 @@ c-----------------------------------------------------------------------
       include 'TOTAL'
       include 'NEKUSE'
 
+      common /excite/ omega, magnitude
+      real omega, magnitude
+
       common /dimen/ Re,We,Fr,charl,udim
       real Re,We,Fr, charl, udim
-      real sfx,sfy,sfz, fexcite, omega
+
+      real sfx,sfy,sfz, fexcite
 
       real svvx,svvy,svvz
 
@@ -94,17 +99,16 @@ c-----------------------------------------------------------------------
       svvz = 0.0
 
       call surfacetension(ix,iy,iz,e,1./We,sfx,sfy,sfz)
-c     call surfacetension(ix,iy,iz,e,0.05,sfx,sfy,sfz)
-c     call surfacetension(ix,iy,iz,e,0.0,sfx,sfy,sfz)
       
       call svv_fluid(ix,iy,iz,e,svvx,svvy,svvz)
+      
+      ! acceleration term from excitation 
+      fexcite =  omega**2*cos(omega*charl/udim*time)
+      fexcite = magnitude*fexcite ! m/s^2
+      fexcite = charl/udim**2*fexcite ! nondimensionalize
 
-      omega = 10.5718 ! s^-1
-      fexcite =  omega**2*cos(
-     $                omega*charl/udim*time)
-      fexcite = 0.04474*fexcite ! m/s^2
       ffx = sfx + svvx
-      ffy = sfy -1./Fr + svvy + charl/udim**2*fexcite
+      ffy = sfy + svvy -1./Fr + fexcite
       ffz = sfz + svvz
 
       return
@@ -189,9 +193,10 @@ c-----------------------------------------------------------------------
       xx = xm1(ix,iy,iz,e)
       yy = ym1(ix,iy,iz,e)
 
+      x_max = 4.0 ! length of the domain, nondimensionalized
 
-      h_local = 1.0 + 0.01*cos(xx/4.0*2*3.1415)
-      h_local = h_local + 0.0001*(1.0-2.0*(xx/4.0))
+      h_local = 1.0 + 0.01*cos(xx/x_max*2*3.1415)     ! small initial wave
+      h_local = h_local + 0.0001*(1.0-2.0*(xx/x_max)) ! small linear perturbation to eliminate symmetry
 
       ux = 0.0
       uy = 0.0
@@ -310,7 +315,7 @@ c-----------------------------------------------------------------------
       ifld_tlsr = 5
 
       ntot = lx1*ly1*lz1*nelv
-      scale = 1.0/0.05
+      scale = 1.0/0.05  ! Scale the mesh so that the bottom layer's height is 1.0
       call cmult(xm1, scale, ntot)
       call cmult(ym1, scale, ntot)
       call cmult(zm1, scale, ntot)
@@ -335,6 +340,13 @@ c-----------------------------------------------------------------------
       integer ifld_tls,ifld_tlsr
       integer ifdebug, ifixCLSbdry
       real farfield
+
+      common /excite/ omega, magnitude
+      real omega, magnitude
+
+      omega = 10.5718 ! s^-1 frequency of excitation
+      magnitude = 0.04474 ! m magnitude of excitation
+
 
       eps = 1.5/(lx1-1.0)
       ifdebug = 0

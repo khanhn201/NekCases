@@ -1,149 +1,6 @@
       include "experimental/lvlSet.f"
       include "experimental/lserrors.f"
 c-----------------------------------------------------------------------
-      subroutine spline(x,y,n,y2)
-      parameter (nmax=100)
-      dimension x(n),y(n),y2(n),u(nmax)
-      if (n.gt.nmax) then
-         write(6,11) n,nmax
-   11    FORMAT(2X,'ERROR:  Attempt to fit a spline with',I5
-     $            ,'greater than',I4,' points.'
-     $       ,/,2X,'Recompile routine SPLINE.')
-         call exitti('routine spline fail$',n)
-      endif
-      y2(1)=0.0
-      u(1) =0.0
-      do 10 i=2,n-1
-         ir=i+1
-         il=i-1
-         sig=(x(i)-x(il))/(x(ir)-x(il))
-         p=sig*y2(il)+2.
-         y2(i)=(sig-1.)/p
-         u(i)= ( 6.*
-     $     ( (y(ir)-y(i))/(x(ir)-x(i))-(y(i)-y(il))/ (x(i)-x(il) ) )
-     $            / (x(ir)-x(il))
-     $    - sig*u(il) )/p
-   10 continue
-      qn=0.0
-      un=0.0
-      y2(n)=(un-qn*u(n-1))/(qn*y2(n-1)+1.)
-      do 20 k=n-1,1,-1
-         y2(k)=y2(k)*y2(k+1)+u(k)
-   20 continue
-      return
-      end
-c-----------------------------------------------------------------------
-      subroutine splint(xa,ya,y2a,n,x,y)
-c     p. 88-89, numerical recipes
-      real xa(n),ya(n),y2a(n)
-      klo=1
-      khi=n
-    1   if ((khi-klo).gt.1) then
-           k=(khi+klo)/2
-           if (xa(k).gt.x) then
-              khi=k
-           else
-              klo=k
-           endif
-           goto 1
-        endif
-      h=xa(khi)-xa(klo)
-      if (h.eq.0) then
-         write(6,*) xa(khi), 'splint failure',khi
-         return
-      endif
-      a=(xa(khi)-x)/h
-      b=(x-xa(klo))/h
-      y=a*ya(klo)+b*ya(khi)+
-     $  ((a**3-a)*y2a(klo)+(b**3-b)*y2a(khi))*(h**2)/6.
-      return
-      end
-c-----------------------------------------------------------------------
-      function blasius(y,delta,u)
-c     Return the velocity at a given y value for specified delta and U.
-      integer icalld
-      save    icalld
-      data    icalld /0/
-      dimension u0(45),y0(45),work(45)
-      save      u0    ,y0    ,work
-      data      u0 / 0.00000 , 0.06641 , 0.13277 , 0.19894 , 0.26471
-     $             , 0.32979 , 0.39378 , 0.45627 , 0.51676 , 0.57477
-     $             , 0.62977 , 0.68132 , 0.72899 , 0.77246 , 0.81152
-     $             , 0.84605 , 0.87609 , 0.90177 , 0.92333 , 0.94112
-     $             , 0.95552 , 0.96696 , 0.97587 , 0.98269 , 0.98779
-     $             , 0.99155 , 0.99425 , 0.99616 , 0.99748 , 0.99838
-     $             , 0.99898 , 0.99937 , 0.99961 , 0.99977 , 0.99987
-     $             , 0.99992 , 0.99996 , 0.99998 , 0.99999 , 1.00000
-     $             , 1.00000 , 1.00000 , 1.00000 , 1.00000 , 1.00000 /
-      if (icalld.eq.0) then
-c        Initialize Blasius profile and spline fitting routine.
-         icalld=1
-         do 10 i=1,45
-            y0(i)=float(i-1)/5.0
-   10    continue
-         call spline(y0,u0,45,work)
-      endif
-      eta=5.0*y/delta
-      if (eta.gt.8.5) then
-         blasius=u
-      else
-         call splint(y0,u0,work,45,eta,vel)
-         blasius=vel*u
-      endif
-      return
-      end
-c-----------------------------------------------------------------------
-      subroutine surface_flux_scal(dq,scal,qx,qy,qz,e,f,w,w2)
-
-      include 'SIZE'
-      include 'TOTAL'
-      parameter (l=lx1*ly1*lz1)
-
-      real scal(l,1),qx(l,1),qy(l,1),qz(l,1),w(lx1,ly1,lz1),w2(l)
-      real scal_pos(l)      ! Temporary copy
-      real scal_p
-      integer e,f
-
-      do i = 1,l
-         scal_p = scal(i,e)
-         if (scal_p.gt.0.5) then
-           scal_pos(i) = 1.0
-         else
-           scal_pos(i) = 0.0
-         endif
-      enddo
-
-      call col3    (w2,scal_pos,qx(1,e),l)
-      call faccl3  (w,w2,unx(1,1,f,e),f)
-
-      call col3    (w2,scal_pos,qy(1,e),l)
-      call faddcl3 (w,w2,uny(1,1,f,e),f)
-
-      if (ldim.gt.2) then
-         call col3    (w2,scal_pos,qz(1,e),l)
-         call faddcl3 (w,w2,unz(1,1,f,e),f)
-      endif
-
-      call dsset(lx1,ly1,lz1)
-      iface  = eface1(f)
-      js1    = skpdat(1,iface)
-      jf1    = skpdat(2,iface)
-      jskip1 = skpdat(3,iface)
-      js2    = skpdat(4,iface)
-      jf2    = skpdat(5,iface)
-      jskip2 = skpdat(6,iface)
-
-      dq = 0
-      i  = 0
-      do 100 j2=js2,jf2,jskip2
-      do 100 j1=js1,jf1,jskip1
-         i = i+1
-         dq    = dq + area(i,1,f,e)*w(j1,j2,1)
-  100 continue
-
-      return
-      end
-c-----------------------------------------------------------------------
       subroutine uservp(ix,iy,iz,eg) ! set variable properties
       implicit none
       integer ix,iy,iz,eg,e
@@ -166,7 +23,7 @@ c-----------------------------------------------------------------------
       save icalld
       data icalld /0/
 
-      common /dimen/ Re,We,Fr
+      common /dimen/ Re,We,Fr,charl,udim
 
       e = gllel(eg)
 
@@ -174,27 +31,20 @@ c-----------------------------------------------------------------------
 !     To Do: change the flow, so that this routine is called
 !     similar to RANS. Will avoid confusion
 
-      charl = 0.05715
       gdim = 9.81
-      rhol = 1000.0
-      rhog = 1.2
-      mul = 1e-3
-      mug = 1.8e-5 !/5.0
+      rhol = 998.0
+      rhog = 826.0
+      mul = 0.000998
+      mug = 0.002478
       nul = mul/rhol
       nug = mug/rhog
-
-      !https://www.sciencedirect.com/science/article/pii/S0021999197958472
+      charl = 0.05
       udim = sqrt(gdim*charl)
 
       Re = rhol*udim*charl/mul
       Fr = udim**2.0/(gdim*charl)
-      gamm = 0.06
+      gamm = 0.018
       We = charl*rhol*udim**2.0/gamm
-
-      Re = 11000.0
-      Fr = 4.0
-      We = 1820.0
-
 
       if(ifield.eq.1)then
         psi = t(ix,iy,iz,e,ifld_cls-1)
@@ -228,9 +78,9 @@ c-----------------------------------------------------------------------
       include 'TOTAL'
       include 'NEKUSE'
 
-      common /dimen/ Re,We,Fr
-      real Re,We,Fr
-      real sfx,sfy,sfz
+      common /dimen/ Re,We,Fr,charl,udim
+      real Re,We,Fr, charl, udim
+      real sfx,sfy,sfz, fexcite, omega
 
       real svvx,svvy,svvz
 
@@ -244,13 +94,18 @@ c-----------------------------------------------------------------------
       svvz = 0.0
 
       call surfacetension(ix,iy,iz,e,1./We,sfx,sfy,sfz)
+c     call surfacetension(ix,iy,iz,e,0.05,sfx,sfy,sfz)
 c     call surfacetension(ix,iy,iz,e,0.0,sfx,sfy,sfz)
       
       call svv_fluid(ix,iy,iz,e,svvx,svvy,svvz)
 
+      omega = 10.5718 ! s^-1
+      fexcite =  omega**2*cos(
+     $                omega*charl/udim*time)
+      fexcite = 0.04474*fexcite ! m/s^2
       ffx = sfx + svvx
-      ffy = sfy -1./Fr + svvy
-c     ffz = sfz + svvz
+      ffy = sfy -1./Fr + svvy + charl/udim**2*fexcite
+      ffz = sfz + svvz
 
       return
       end
@@ -290,14 +145,12 @@ c-----------------------------------------------------------------------
       integer ifld_cls,ifld_clsr
       integer ifld_tls,ifld_tlsr
 
-      common /mypres/ pres(lx1,ly1,lz1,lelt)
 
       integer e
       real yplus
       real xx,yy,heaviside
       real y_height
       real blasius
-      real pres
 
       e = gllel(eg)
 
@@ -307,19 +160,6 @@ c-----------------------------------------------------------------------
       ux   = 0.0
       uy   = 0.0
       uz   = 0.0
-
-      ux   = 1.0
-      if (yy.gt.1.0) then
-        ux = 1.0 - blasius(yy-1.0,1.3,1.0)
-      endif
-
-      temp = 1.0 - yy
-      pa  = pres(ix, iy, iz, e)
-      if(ifield.eq.ifld_tls .or. ifield.eq.ifld_tlsr)then
-        continue
-      elseif(ifield.eq.ifld_cls .or. ifield.eq.ifld_clsr)then
-        temp = heaviside(ix,iy,iz,e,temp,0.0)
-      endif
 
 
       return
@@ -344,32 +184,20 @@ c-----------------------------------------------------------------------
       real h_local, v_local
       real phix, phiy
 
-      common /bump_usr/ A,H,W
-      real A,H,W,argx, bump
-
       e = gllel(eg)
 
       xx = xm1(ix,iy,iz,e)
       yy = ym1(ix,iy,iz,e)
 
 
-      ux = 1.0
+      h_local = 1.0 + 0.01*cos(xx/4.0*2*3.1415)
+      h_local = h_local + 0.0001*(1.0-2.0*(xx/4.0))
+
+      ux = 0.0
       uy = 0.0
       uz = 0.0
 
-      h_local = 1.0 + 2.0*exp(-(xx-22.5)*(xx-22.5)/64.0)
-      slope = -( (xx-22.5)/8.0 ) * ( h_local - 1.0 )
-      tx = 1.0
-      ty = slope
-      phix = tx / sqrt(tx*tx + ty*ty)
-      phiy = ty / sqrt(tx*tx + ty*ty)
-
-      if (yy.gt.h_local) then
-        ux = 1.0 - blasius(yy-h_local,1.3,1.0)
-      endif
-
-c     temp = h_local - yy
-      temp = (h_local - yy)*phix
+      temp = h_local - yy
 
       if(ifield.eq.ifld_tls .or. ifield.eq.ifld_tlsr)then
         continue
@@ -377,31 +205,6 @@ c     temp = h_local - yy
         temp = heaviside(ix,iy,iz,e,temp,0.0)
       endif
       
-      return
-      end
-c-----------------------------------------------------------------------
-      subroutine set_my_outflow
-      implicit none
-      include 'SIZE'
-      include 'TOTAL'
-      common /mypres/ pres(lx1,ly1,lz1,lelt)
-      integer nface, e, f, j
-      real pres
-
-      nface = 2*ldim
-      do e=1,nelv
-      do f=1,nface
-         if (cbc(e,f,1).eq.'O  ') then
-         if (f.eq.2) then
-            do j=1,lx1
-            pres(lx1, j, 1, e) = pr(1, j, 1, e)
-            enddo
-         endif
-         endif
-      enddo
-      enddo
-
-
       return
       end
 c-----------------------------------------------------------------------
@@ -414,7 +217,6 @@ c-----------------------------------------------------------------------
      $                ifld_tls,ifld_tlsr 
       integer ifld_cls,ifld_clsr
       integer ifld_tls,ifld_tlsr
-
 
       real ntlsr, nclsr
       real pta(3),ptb(3)
@@ -429,16 +231,7 @@ c-----------------------------------------------------------------------
       
       real ls_volerr
 
-      COMMON /SCRNS/ DVC  (LX1,LY1,LZ1,LELV),
-     $               DV1  (LX1,LY1,LZ1,LELV),
-     $               DV2  (LX1,LY1,LZ1,LELV),
-     $               DFC  (LX1,LY1,LZ1,LELV)
-      real DVC,DV1,DV2,DFC
-      real DIV1, DIV2
       real glsum
-      real fplot,fplot_next
-      save fplot_next
-      data fplot_next /0.0/
       integer pord
       integer ncut
       real starttime
@@ -446,29 +239,10 @@ c-----------------------------------------------------------------------
 
       integer nface, f, e
       real w(lx1*ly1*lz1),w2(lx1*ly1*lz1)
-      real total_flux, dq
 
       ntot = lx1*ly1*lz1*nelv
 
-
-
-      total_flux = 0.0
-      nface = 2*ldim
-      do e=1,nelt
-      do f=1,nface
-         if (cbc(f,e,1).eq.'o  ') then ! Velocity outflow
-            call surface_flux_scal(dq,t,vx,vy,vz,e,f,w,w2)
-            total_flux = total_flux + dq
-         endif
-      enddo
-      enddo
-      total_flux = glsum(total_flux,1)
       
-
-      call set_my_outflow
-
-
-
       if(istep.eq.0)then
         call copy(psiini,t(1,1,1,1,ifld_cls-1),ntot)
         call copy(exact,t(1,1,1,1,ifld_tls-1),ntot)
@@ -479,9 +253,6 @@ c-----------------------------------------------------------------------
             exact(i) = 0.0
           endif
         enddo
-      endif
-      if(istep.eq.0 .and. nio.eq.0)then
-        open(unit=100,file='vol.dat',status='unknown')
       endif
 
       pord = uparam(3)
@@ -495,46 +266,11 @@ c-----------------------------------------------------------------------
       call LS_default_driver(ntlsr,nclsr)
 
       err = ls_volerr(ifld_cls,exact,psiini)
-
-      !Calculate Divergence norms of new VX,VY,VZ
-      CALL OPDIV   (DVC,VX,VY,VZ)
-      CALL DSSUM   (DVC,lx1,ly1,lz1)
-      CALL COL2    (DVC,BINVM1,NTOT)
-
-      CALL COL3    (DV1,DVC,BM1,NTOT)
-      DIV1 = GLSUM (DV1,NTOT)/VOLVM1
-
-      CALL COL3    (DV2,DVC,DVC,NTOT)
-      CALL COL2    (DV2,BM1   ,NTOT)
-      DIV2 = GLSUM (DV2,NTOT)/VOLVM1
-      DIV2 = SQRT  (DIV2)
       if(nio.eq.0)then 
         write(*,*)"Volume error",err
-        write(100,*)time,err,DIV1,DIV2
       endif
 
-      if(istep.eq.nsteps .and. nio.eq.0) close(100)
-      
-      fplot = 0.1
       if(istep.eq.0)starttime = time
-c     if(time-starttime .ge. fplot_next)then
-c       fplot_next = fplot_next + fplot
-c       pta(1) = 0.0
-c       pta(2) = 0.0
-c       pta(3) = 0.5
-c       ptb(1) = 5.0
-c       ptb(2) = 0.0
-c       ptb(3) = 0.5
-c       call lineplot(pta,ptb,1001)
-
-c       pta(1) = 0.0
-c       pta(2) = 0.0
-c       pta(3) = 0.5
-c       ptb(1) = 0.0
-c       ptb(2) = 1.25
-c       ptb(3) = 0.5
-c       call lineplot(pta,ptb,1001)
-c     endif
 
       return
       end
@@ -565,32 +301,20 @@ c-----------------------------------------------------------------------
       integer ifld_tls,ifld_tlsr
 
       integer ntot,i
-
-      common /bump_usr/ A,H,W
-      real A,H,W,xx,yy,argx,A1, bump
+      real scale
 
 
       ifld_cls = 2
       ifld_tls = 3
       ifld_clsr = 4
       ifld_tlsr = 5
+
+      ntot = lx1*ly1*lz1*nelv
+      scale = 1.0/0.05
+      call cmult(xm1, scale, ntot)
+      call cmult(ym1, scale, ntot)
+      call cmult(zm1, scale, ntot)
       
-      ntot = lx1*ly1*lz1*nelt
-      A   = 24.0          ! center of the weir
-      H   = 2.5          ! height of the weir
-      W   = 0.5          ! width scaling
-      H   = 0.0
-
-      do i=1,ntot
-         xx   = xm1(i,1,1,1)
-         yy   = ym1(i,1,1,1)
-
-         ! Smooth bump shape around x = 5
-         argx = (xx - A)/W
-         bump = H * exp(-argx*argx)   ! Gaussian-shaped bump
-
-         ym1(i,1,1,1) = yy + (1.0-yy/5.0)*bump
-      enddo
       return
       end
 c-----------------------------------------------------------------------
@@ -615,7 +339,7 @@ c-----------------------------------------------------------------------
       eps = 1.5/(lx1-1.0)
       ifdebug = 0
       ifixCLSbdry = 0
-      farfield = 0.0
+
       call ls_init(ifld_cls, ifld_clsr,
      $             ifld_tls, ifld_tlsr,
      $             eps, ifdebug, ifixCLSbdry, farfield)

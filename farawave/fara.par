@@ -2,28 +2,30 @@
 # nek parameter file
 #
 [GENERAL]
-#startFrom = "c1.f00000"
+#startFrom = c1.f00000
 #stopAt = numSteps
 stopAt = endTime
 #numSteps = 500000 #12000 #1000 #16000 #4000 #400 #400 #200000
-endTime = 1000 #10e-4
+endTime = 10000 #10e-4
 
-dt = 5e-03
+dt = 1e-01
 timeStepper = bdf2 #With bdf2 SF does not work well
 variabledt = yes
-targetCFL = 0.1
+targetCFL = 0.2
 extrapolation = OIFS
 
 writeControl = runTime
-writeInterval = 5e-1
+writeInterval = 2e-0
 
-userParam01 = 0.01     #Freq of TLSR
-userParam02 = 0.001      #Freq of CLSR
+userParam01 = 5.0     #Freq of TLSR
+userParam02 = 0.5     #Freq of CLSR
 userParam03 = 2    #Pressure extrapolation order
 
 filtering = hpfrt
 filterModes = 2
 filterWeight = 10.0
+
+# Everything after here shouldn't be changed except for the tolerances
 
 [PROBLEMTYPE]
 equation = lowMachNS

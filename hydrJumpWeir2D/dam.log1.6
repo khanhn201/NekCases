@@ -1,0 +1,94 @@
+/----------------------------------------------------------\\
+|      _   __ ______ __ __  ______  ____   ____   ____     |
+|     / | / // ____// //_/ / ____/ / __ \\/ __ \\/ __ \\   |
+|    /  |/ // __/  / ,<   /___ \\ / / / // / / // / / /    |
+|   / /|  // /___ / /| | ____/ / / /_/ // /_/ // /_/ /     |
+|  /_/ |_//_____//_/ |_|/_____/  \\___/ \\___/ \\___/      |
+|                                                          |
+|----------------------------------------------------------|
+|                                                          |
+| COPYRIGHT (c) 2008-2020 UCHICAGO ARGONNE, LLC            |
+| Version:  20.0-dev                                       |
+| Web:      https://nek5000.mcs.anl.gov                    |
+|                                                          |
+\\----------------------------------------------------------/
+
+ Number of MPI ranks :           6
+  
+ Reading dam.par                                                                                                                             
+general = [(null)]
+general:stopat = [endTime]
+general:endtime = [10]
+general:dt = [8e-04]
+general:timestepper = [bdf2]
+general:variabledt = [yes]
+general:targetcfl = [0.01]
+general:extrapolation = [OIFS]
+general:writecontrol = [runTime]
+general:writeinterval = [3e-2]
+general:userparam01 = [0.01]
+general:userparam02 = [0.001]
+general:userparam03 = [2]
+general:filtering = [hpfrt]
+general:filtermodes = [2]
+general:filterweight = [10.0]
+problemtype = [(null)]
+problemtype:equation = [lowMachNS]
+problemtype:variableproperties = [yes]
+problemtype:stressformulation = [yes]
+pressure = [(null)]
+pressure:residualtol = [1e-8]
+pressure:residualproj = [yes]
+pressure:preconditioner = [semg_amg_hypre]
+velocity = [(null)]
+velocity:residualtol = [1e-8]
+velocity:density = [1]
+velocity:viscosity = [-1.0]
+temperature = [(null)]
+temperature:rhocp = [1.]
+temperature:conductivity = [1.]
+temperature:residualtol = [1e-8]
+temperature:regularization = [svv]
+scalar01 = [(null)]
+scalar01:density = [1.0]
+scalar01:diffusivity = [1e-8]
+scalar01:residualtol = [1e-8]
+scalar01:regularization = [svv]
+scalar02 = [(null)]
+scalar02:density = [1.0]
+scalar02:diffusivity = [1e-8]
+scalar02:residualtol = [1e-8]
+scalar02:regularization = [svv]
+scalar03 = [(null)]
+scalar03:density = [1.0]
+scalar03:diffusivity = [1e-8]
+scalar03:residualtol = [1e-8]
+scalar03:regularization = [svv]
+ reading dam.re2                                                                                                                             
+ hdr:#v002     3200  2     3200 hdr                                                  
+ partioning elements to MPI ranks
+ reading mesh 
+   readp_re2_mesh:pack/cr/unpack : 0.43E-03 0.15E-03 0.16E-03
+   readp_re2_mesh:byte_read_mpi  : 0.61E-01
+ reading boundary faces                  240 for ifield   1
+   readp_re2_bc:pack/cr/unpack : 0.29E-05 0.83E-04 0.61E-05
+   readp_re2_bc:byte_read_mpi  : 0.44E-01
+ reading boundary faces                  240 for ifield   2
+   readp_re2_bc:pack/cr/unpack : 0.33E-05 0.82E-04 0.57E-05
+   readp_re2_bc:byte_read_mpi  : 0.44E-01
+ reading boundary faces                  240 for ifield   3
+   readp_re2_bc:pack/cr/unpack : 0.38E-05 0.83E-04 0.67E-05
+   readp_re2_bc:byte_read_mpi  : 0.45E-01
+ reading boundary faces                  240 for ifield   4
+   readp_re2_bc:pack/cr/unpack : 0.34E-05 0.83E-04 0.52E-05
+   readp_re2_bc:byte_read_mpi  : 0.44E-01
+ reading boundary faces                  240 for ifield   5
+   readp_re2_bc:pack/cr/unpack : 0.34E-05 0.85E-04 0.62E-05
+   readp_re2_bc:byte_read_mpi  : 0.44E-01
+ done :: read .re2 file    0.32     sec
+
+ Reading dam.ma2                                                                                                                             
+ Error invalid tuple sum!
+  
+an error occured: dying ...
+  

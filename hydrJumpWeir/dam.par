@@ -2,20 +2,20 @@
 # nek parameter file
 #
 [GENERAL]
-#startFrom = dam.fld
+#startFrom = "c1.f00000"
 #stopAt = numSteps
 stopAt = endTime
 #numSteps = 500000 #12000 #1000 #16000 #4000 #400 #400 #200000
-endTime = 5 #10e-4
+endTime = 1000 #10e-4
 
-dt = 8e-04
+dt = 1e-02
 timeStepper = bdf2 #With bdf2 SF does not work well
 variabledt = yes
 targetCFL = 0.1
 extrapolation = OIFS
 
 writeControl = runTime
-writeInterval = 0.05
+writeInterval = 5e-1
 
 userParam01 = 0.01     #Freq of TLSR
 userParam02 = 0.001      #Freq of CLSR

@@ -6,7 +6,7 @@
 #stopAt = numSteps
 stopAt = endTime
 #numSteps = 500000 #12000 #1000 #16000 #4000 #400 #400 #200000
-endTime = 10000 #10e-4
+endTime = 1000 #10e-4
 
 dt = 1e-01
 timeStepper = bdf2 #With bdf2 SF does not work well

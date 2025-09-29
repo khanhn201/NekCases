@@ -1,5 +1,4 @@
       include "experimental/lvlSet.f"
-      include "lineplot.f"
       include "experimental/lserrors.f"
 c-----------------------------------------------------------------------
       subroutine spline(x,y,n,y2)
@@ -183,22 +182,27 @@ c-----------------------------------------------------------------------
       mug = 1.8e-5 !/5.0
       nul = mul/rhol
       nug = mug/rhog
-      charl = 0.05715
 
       !https://www.sciencedirect.com/science/article/pii/S0021999197958472
       udim = sqrt(gdim*charl)
 
-      Re = 30000.0
-      Fr = 6.0
+      Re = rhol*udim*charl/mul
+      Fr = udim**2.0/(gdim*charl)
       gamm = 0.06
-      We = 40.0
+      We = charl*rhol*udim**2.0/gamm
+
+      Re = 11000.0
+c     Re = 500.0
+      Fr = 4.0
+      We = 1820.0
+
 
       if(ifield.eq.1)then
         psi = t(ix,iy,iz,e,ifld_cls-1)
         psi = max(0.0,psi)
         psi = min(1.0,psi)
-        utrans = ((1.0-psi)*rhog + psi*rhol)
-        udiff = ((1.0-psi)*mug + psi*mul)
+        utrans = ((1.0-psi)*rhog + psi*rhol)/rhol
+        udiff = ((1.0-psi)*mug + psi*mul)/mul/Re
         if(istep.le.2)then
           vtrans0(ix,iy,iz,e) = utrans
         else
@@ -240,13 +244,13 @@ c-----------------------------------------------------------------------
       svvy = 0.0
       svvz = 0.0
 
-      call surfacetension(ix,iy,iz,e,0.075,sfx,sfy,sfz)
+      call surfacetension(ix,iy,iz,e,1./We,sfx,sfy,sfz)
       
       call svv_fluid(ix,iy,iz,e,svvx,svvy,svvz)
 
       ffx = sfx + svvx
-      ffy = sfy -9.81 + svvy
-c     ffz = sfz + svvz
+      ffy = sfy -1./Fr + svvy
+      ffz = sfz + svvz
 
       return
       end
@@ -286,17 +290,16 @@ c-----------------------------------------------------------------------
       integer ifld_cls,ifld_clsr
       integer ifld_tls,ifld_tlsr
 
-      common /hydr_usr/ outflow_height
-      real outflow_height
+      common /mypres/ pres(lx1,ly1,lz1,lelt)
+      real pres
 
-      common /dimen/ Re,We,Fr
-      real Re,We,Fr
-      real sfx,sfy,sfz
+      common /myvps/ uvw(lx1,ly1,lz1,lelt,3), myps(lx1,ly1,lz1,lelt,4)
+      real uvw, myps
 
       integer e
       real yplus
-      real xx,yy,heaviside,tempp
-      real y_height
+      real xx,yy,heaviside
+      real y_height, v_local
       real blasius
 
       e = gllel(eg)
@@ -308,30 +311,34 @@ c-----------------------------------------------------------------------
       uy   = 0.0
       uz   = 0.0
 
-      if (yy.le.1.3) then
-        ux   = 14.0
-c       ux   = (1-(2*(yy/0.013)-1)**2)*14.0
-      else
-        ux = 14.0 - blasius(yy-1.3,0.13,14.0)
-        ux = 14.0
-c       ux = 5.0
+      y_height = 3.0
+      if (xx.lt.1.0) then
+        y_height = 1.0
       endif
 
-      y_height = outflow_height
-      if (xx.lt.0.1) then
-        y_height = 1.3
+      v_local = 1.0/y_height
+      ux   = v_local
+      if (yy.gt.y_height) then
+        ux = v_local - blasius(yy-y_height,1.3,v_local)
       endif
+      ux = 1.0
+
       temp = y_height - yy
-      pa  = 0.0
-      if (temp.ge.0.0) then 
-        pa   = temp*9.81*1000.0
-      endif
       if(ifield.eq.ifld_tls .or. ifield.eq.ifld_tlsr)then
         continue
       elseif(ifield.eq.ifld_cls .or. ifield.eq.ifld_clsr)then
         temp = heaviside(ix,iy,iz,e,temp,0.0)
       endif
 
+      if (xx.ge.1.0) then ! outflow side
+        pa = pres(ix, iy, iz, e)
+        ux = uvw(ix,iy,iz,e,1)
+        uy = uvw(ix,iy,iz,e,2)
+        uz = uvw(ix,iy,iz,e,3)
+        if (ifield.ne.1) then
+          temp = myps(ix,iy,iz,e,ifield-1)
+        endif
+      endif
 
       return
       end
@@ -349,33 +356,43 @@ c-----------------------------------------------------------------------
       integer ifld_cls,ifld_clsr
       integer ifld_tls,ifld_tlsr
 
-      common /hydr_usr/ outflow_height
-      real outflow_height
       real blasius
 
-      real xx,yy, x_max,heaviside, tempp
+      real xx,yy, x_max,heaviside, tx,ty, slope
       real h_local, v_local
+      real phix, phiy
+
+      common /bump_usr/ A,H,W
+      real A,H,W,argx, bump
 
       e = gllel(eg)
 
       xx = xm1(ix,iy,iz,e)
       yy = ym1(ix,iy,iz,e)
 
-      x_max = 100.0
-      h_local = 1.3 + xx/x_max*3.0
-      outflow_height = 1.3 + 3.0
 
-      ux = 0.0
+      h_local = min(1.0 + (xx/35.0)*2.0, 3.0)
+      ux = 1.0/h_local
       uy = 0.0
       uz = 0.0
 
+c     h_local = 1.0 + 2.0*exp(-(xx-22.5)*(xx-22.5)/64.0)
+c     slope = -( (xx-22.5)/8.0 ) * ( h_local - 1.0 )
+c     tx = 1.0
+c     ty = slope
+c     phix = tx / sqrt(tx*tx + ty*ty)
+c     phiy = ty / sqrt(tx*tx + ty*ty)
+
+      if (yy.gt.h_local) then
+        ux = 1.0/h_local - blasius(yy-h_local,1.3,1.0/h_local)
+        ux = 1.0/h_local
+      endif
+
       temp = h_local - yy
-      v_local = 14.0*1.3/h_local
-      if (temp.ge.0.0) then
-        ux = v_local
-      else
-        ux = v_local - blasius(-temp,0.13, v_local)
-        ux = v_local
+      temp = (h_local - yy)/sqrt(1.0+(2.0/35.0)**2)
+
+      if (xx.gt.35.0) then
+        temp = h_local - yy
       endif
 
       if(ifield.eq.ifld_tls .or. ifield.eq.ifld_tlsr)then
@@ -383,6 +400,54 @@ c-----------------------------------------------------------------------
       elseif(ifield.eq.ifld_cls .or. ifield.eq.ifld_clsr)then
         temp = heaviside(ix,iy,iz,e,temp,0.0)
       endif
+      
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine set_my_outflow
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      common /mypres/ pres(lx1,ly1,lz1,lelt)
+      real pres
+      common /myvps/ uvw(lx1,ly1,lz1,lelt,3), myps(lx1,ly1,lz1,lelt,4)
+      real uvw, myps
+      integer nface, e, f, j, i,k , i0, i1, j0, j1, k0, k1, ii
+
+      nface = 2*ldim
+      do e=1,nelv
+      do f=1,nface
+         if ((cbc(f,e,1).eq.'o  ').or.(cbc(f,e,1).eq.'v  ')) then
+         if (f.eq.2) then !outflow
+            do k=1,lz1
+            do j=1,ly1
+c             do i=lx1,lx1
+c               pr(i, j, k, e) = pres(i, j, k, e)
+c               vx(i, j, k, e) = uvw(i, j, k, e, 1)
+c               vy(i, j, k, e) = uvw(i, j, k, e, 2)
+c               vz(i, j, k, e) = uvw(i, j, k, e, 3)
+c               do ii=1,4
+c                  t(i, j, k, e, ii) = myps(i, j, k, e, ii)
+c               enddo
+c             enddo
+
+              do i=2,lx1
+                pres(i, j, k, e) = pr(1, j, k, e)
+                uvw(i, j, k, e, 1) = vx(1, j, k, e)
+                uvw(i, j, k, e, 2) = vy(1, j, k, e)
+                uvw(i, j, k, e, 3) = vz(1, j, k, e)
+                do ii=1,4
+                    myps(i, j, k, e, ii) = t(1, j, k, e, ii)
+                enddo
+              enddo
+
+            enddo
+            enddo
+         endif
+         endif
+      enddo
+      enddo
+c     call outpost(xm1,ym1,zm1,pr,pres,'pre')
 
       return
       end
@@ -397,21 +462,10 @@ c-----------------------------------------------------------------------
       integer ifld_cls,ifld_clsr
       integer ifld_tls,ifld_tlsr
 
-      common /hydr_usr/ outflow_height
-      real outflow_height
-
       real ntlsr, nclsr
       real pta(3),ptb(3)
 
       integer ntot,i
-
-      real exact(lx1*ly1*lz1*lelv)
-      save exact
-      real psiini(lx1,ly1,lz1,lelv)
-      save psiini
-      real err
-      
-      real ls_volerr
 
       COMMON /SCRNS/ DVC  (LX1,LY1,LZ1,LELV),
      $               DV1  (LX1,LY1,LZ1,LELV),
@@ -420,24 +474,14 @@ c-----------------------------------------------------------------------
       real DVC,DV1,DV2,DFC
       real DIV1, DIV2
       real glsum
-      real fplot,fplot_next
-      save fplot_next
-      data fplot_next /0.0/
       integer pord
       integer ncut
-      real starttime
-      save starttime
 
       integer nface, f, e
       real w(lx1*ly1*lz1),w2(lx1*ly1*lz1)
       real total_flux, dq
 
-      common /dimen/ Re,We,Fr
-      real Re,We,Fr
-      real sfx,sfy,sfz
-
       ntot = lx1*ly1*lz1*nelv
-
 
 
       total_flux = 0.0
@@ -451,33 +495,14 @@ c-----------------------------------------------------------------------
       enddo
       enddo
       total_flux = glsum(total_flux,1)
-c     outflow_height = outflow_height/(total_flux/(14.0*0.013))
-      if(nio.eq.0)then 
-        write(*,*)"outflow_height",outflow_height
-      endif
       
 
+      call set_my_outflow
 
-
-
-      if(istep.eq.0)then
-        call copy(psiini,t(1,1,1,1,ifld_cls-1),ntot)
-        call copy(exact,t(1,1,1,1,ifld_tls-1),ntot)
-        do i=1,ntot
-          if(exact(i).ge.0.0)then
-            exact(i) = 1.0
-          else
-            exact(i) = 0.0
-          endif
-        enddo
-      endif
-      if(istep.eq.0 .and. nio.eq.0)then
-        open(unit=100,file='vol.dat',status='unknown')
-      endif
 
       pord = uparam(3)
       call extrappr(prext,pr,prlag(1,1,1,1,1),prlag(1,1,1,1,2),pord)
-      ncut = lx1-2
+      ncut = lx1-1
       if(pord.ne.1) call cut_off_filter(prext,ncut,1)
 
       ntlsr = uparam(1) !freq of TLS re-distancing
@@ -485,7 +510,6 @@ c     outflow_height = outflow_height/(total_flux/(14.0*0.013))
 
       call LS_default_driver(ntlsr,nclsr)
 
-      err = ls_volerr(ifld_cls,exact,psiini)
 
       !Calculate Divergence norms of new VX,VY,VZ
       CALL OPDIV   (DVC,VX,VY,VZ)
@@ -499,41 +523,7 @@ c     outflow_height = outflow_height/(total_flux/(14.0*0.013))
       CALL COL2    (DV2,BM1   ,NTOT)
       DIV2 = GLSUM (DV2,NTOT)/VOLVM1
       DIV2 = SQRT  (DIV2)
-      if(nio.eq.0)then 
-        write(*,*)"Volume error",err
-        write(100,*)time,err,DIV1,DIV2
-      endif
-
-      if(istep.eq.nsteps .and. nio.eq.0) close(100)
       
-      fplot = 0.1
-      if(istep.eq.0)starttime = time
-c     if(time-starttime .ge. fplot_next)then
-c       fplot_next = fplot_next + fplot
-c       pta(1) = 0.0
-c       pta(2) = 0.0
-c       pta(3) = 0.5
-c       ptb(1) = 5.0
-c       ptb(2) = 0.0
-c       ptb(3) = 0.5
-c       call lineplot(pta,ptb,1001)
-
-c       pta(1) = 0.0
-c       pta(2) = 0.0
-c       pta(3) = 0.5
-c       ptb(1) = 0.0
-c       ptb(2) = 1.25
-c       ptb(3) = 0.5
-c       call lineplot(pta,ptb,1001)
-c     endif
-
-c     if (istep.eq.0) then
-c       do i=1,ntot
-c         if (t(1,1,1,1,ifld_tls-1).ge.0.0) then
-c           pr(i,1,1,1) = t(1,1,1,1,ifld_tls-1)/Fr
-c         endif
-c       enddo
-c     endif
 
       return
       end
@@ -565,16 +555,31 @@ c-----------------------------------------------------------------------
 
       integer ntot,i
 
+      common /bump_usr/ A,H,W
+      real A,H,W,xx,yy,argx,A1, bump
+
+
       ifld_cls = 2
       ifld_tls = 3
       ifld_clsr = 4
       ifld_tlsr = 5
-    
-
-      ntot = lx1*ly1*lz1*nelv
-      call cmult(xm1, 100.0, ntot)
-      call cmult(ym1, 100.0, ntot)
       
+      ntot = lx1*ly1*lz1*nelt
+c     A   = 24.0          ! center of the weir
+c     H   = 2.5          ! height of the weir
+c     W   = 0.5          ! width scaling
+c     H   = 0.0
+
+c     do i=1,ntot
+c        xx   = xm1(i,1,1,1)
+c        yy   = ym1(i,1,1,1)
+
+c        ! Smooth bump shape around x = 5
+c        argx = (xx - A)/W
+c        bump = H * exp(-argx*argx)   ! Gaussian-shaped bump
+
+c        ym1(i,1,1,1) = yy + (1.0-yy/5.0)*bump
+c     enddo
       return
       end
 c-----------------------------------------------------------------------
@@ -596,7 +601,7 @@ c-----------------------------------------------------------------------
       integer ifdebug, ifixCLSbdry
       real farfield
 
-      eps = 1.5/(lx1-1.0)
+      eps = 1.7/(lx1-1.0)
       ifdebug = 0
       ifixCLSbdry = 0
       farfield = 0.0
@@ -611,7 +616,8 @@ c     parameters.
 
       !fluid
       svv_c0(1) = 1.0
-      svvcut(1) = (lx1-1.0)/3.0
+c     svvcut(1) = (lx1-1.0)/3.0
+      svvcut(1) = (lx1-1.0)/2.0
 
       ! svv_c0(ifld_cls) = 1.0                 !ifld_cls
       ! svvcut(ifld_cls) = (lx1-1.0)/2.0-1.0
@@ -642,8 +648,8 @@ c     scalar 3
 
 c     scalar 3      
       svv_c0(ifld_tlsr) = 2.0                  !ifld_tlsr
-      svvcut(ifld_tlsr) = (lx1-1.0)/2.0
-      if(lx1.gt.7) svvcut(ifld_tlsr) = (lx1-1.0)/3.0
+      svvcut(ifld_tlsr) = (lx1-1.0)/3.0
+c     if(lx1.gt.7) svvcut(ifld_tlsr) = (lx1-1.0)/3.0
       ! svv_k0(4) = 1.5
       ! svv_k1(4) = 1.5
       ! ifnlsvv(4) = .false.

@@ -9,7 +9,7 @@ stopAt = endTime
 endTime = 200 #10e-4
 #numSteps = 50
 
-dt = 1e-02
+dt = 3e-02
 timeStepper = bdf2 #With bdf2 SF does not work well
 variabledt = yes
 targetCFL = 0.1

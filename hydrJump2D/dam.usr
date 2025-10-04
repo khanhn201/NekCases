@@ -192,7 +192,6 @@ c-----------------------------------------------------------------------
       We = charl*rhol*udim**2.0/gamm
 
       Re = 11000.0
-c     Re = 500.0
       Fr = 4.0
       We = 1820.0
 
@@ -202,6 +201,8 @@ c     Re = 500.0
         psi = max(0.0,psi)
         psi = min(1.0,psi)
         utrans = ((1.0-psi)*rhog + psi*rhol)/rhol
+        udiff = ((1.0-psi)*mug + psi*mul)/mul/Re
+        
         udiff = ((1.0-psi)*mug + psi*mul)/mul/Re
         if(istep.le.2)then
           vtrans0(ix,iy,iz,e) = utrans
@@ -502,7 +503,7 @@ c-----------------------------------------------------------------------
 
       pord = uparam(3)
       call extrappr(prext,pr,prlag(1,1,1,1,1),prlag(1,1,1,1,2),pord)
-      ncut = lx1-1
+      ncut = lx1-2
       if(pord.ne.1) call cut_off_filter(prext,ncut,1)
 
       ntlsr = uparam(1) !freq of TLS re-distancing
@@ -601,7 +602,7 @@ c-----------------------------------------------------------------------
       integer ifdebug, ifixCLSbdry
       real farfield
 
-      eps = 1.7/(lx1-1.0)
+      eps = 1.5/(lx1-1.0)
       ifdebug = 0
       ifixCLSbdry = 0
       farfield = 0.0
@@ -616,7 +617,6 @@ c     parameters.
 
       !fluid
       svv_c0(1) = 1.0
-c     svvcut(1) = (lx1-1.0)/3.0
       svvcut(1) = (lx1-1.0)/2.0
 
       ! svv_c0(ifld_cls) = 1.0                 !ifld_cls
@@ -649,7 +649,6 @@ c     scalar 3
 c     scalar 3      
       svv_c0(ifld_tlsr) = 2.0                  !ifld_tlsr
       svvcut(ifld_tlsr) = (lx1-1.0)/3.0
-c     if(lx1.gt.7) svvcut(ifld_tlsr) = (lx1-1.0)/3.0
       ! svv_k0(4) = 1.5
       ! svv_k1(4) = 1.5
       ! ifnlsvv(4) = .false.

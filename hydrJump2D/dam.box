@@ -1,4 +1,4 @@
--3                     spatial dimension (will create box.re2)
+-2                     spatial dimension (will create box.re2)
 5                      number of fields
 #
 #    comments: two dimensional periodic hill
@@ -6,12 +6,11 @@
 #========================================================
 #
 Box                                       
--100 -20 -8                        Nelx  Nely
+-25 -5
 0 25.0  1.                        x0 x1 ratio
 0 5.0  1.			      y0 y1 ratio
-0 2.0  1.			      y0 y1 ratio
-v  ,v  ,SYM,SYM,P  ,P  
-t  ,O  ,I  ,I  ,P  ,P   
-t  ,O  ,I  ,I  ,P  ,P  
-t  ,O  ,I  ,I  ,P  ,P  
-t  ,O  ,I  ,I  ,P  ,P  
+v  ,v  ,SYM,SYM
+t  ,O  ,I  ,I  
+t  ,O  ,I  ,I  
+t  ,O  ,I  ,I  
+t  ,O  ,I  ,I  

@@ -1,6 +1,199 @@
       include "experimental/lvlSet.f"
       include "experimental/lserrors.f"
 c-----------------------------------------------------------------------
+      real function evm_getvisc(i,j,k,e)
+      include 'SIZE'
+      include 'TOTAL'
+      real tlast
+      data tlast   /-1./
+      save tlast
+      integer e, ifld
+      common /myvisc/ visc(lx1,ly1,lz1,lelt)
+
+
+      if (time.ne.tlast) call evm_setvisc
+      tlast = time
+
+      evm_getvisc = visc(i,j,k,e)
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine evm_g_filter1(u,diag,ifld,ibuild)
+c
+c     Generalized filter: F(u) with F = J^T D J, where D=diag(diag)
+c
+      include 'SIZE'
+      include 'TOTAL'
+
+      real u(1),diag(1)
+
+      parameter (lxx=lx1*lx1,lxyz=lx1*ly1*lz1)
+      common /cgflt1/ f(lxx),wk1(lxyz),wk2(lxyz),wk3(lxyz)
+
+      ifldt  = ifield
+      ifield = ifld
+
+      if (ibuild.eq.0) call build_filter(f,diag,nx1)
+      ibuild=1
+
+      call filterq(u,f,nx1,nz1,wk1,wk2,wk3,if3d,umax)
+
+      ifield = ifldt
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine evm_setvisc
+      include 'SIZE'
+      include 'TOTAL'
+
+      parameter (lt=lx1*ly1*lz1*lelt)
+      real vmag(lt)
+      common /myvisc/ visc(lx1,ly1,lz1,lelt)
+      common /scruz/  h0(lt),uf(lt),r(lt),diag(lx1)
+      real  h0, uf, r, diag
+
+      common /screvm/ h1(lt), h2(lt), dtmp(lt)
+      real  h1, h2, dtmp
+
+      integer ibuild,e
+      save    ibuild
+      data    ibuild / 0 /
+
+      real    visum 
+      save    visum 
+      data    visum  / 0. /
+      integer ncut, nc
+
+      integer trantyp ! changes transfer function
+      integer ncuttyp ! changes cut-off modes number
+
+      ncuttyp = 1 ! constant 3 modes
+      ncuttyp = 2 ! 1/4 of lx1
+      ncuttyp = 3 ! 1/5 of lx1
+      if(ncuttyp.eq.1) then
+        nc = lx1-3
+        if(lx1.le.3) then
+          write(6,*) 'evm: lx1=',lx1,'<=3, set nc=1'
+          nc = 1
+        endif
+      elseif(ncuttyp.eq.2) then
+        nc   = int((3./4.)*lx1)
+      elseif(ncuttyp.eq.3) then
+        nc   = int((4./5.)*lx1)
+      endif
+      ncut = lx1 - nc
+
+      n = nx1*ny1*nz1*nelv
+      dinv=1./ldim
+      do i=1,n
+         h0(i)=bm1(i,1,1,1)**dinv ! Local length scale
+         v2   =vx(i,1,1,1)**2+vy(i,1,1,1)**2+vz(i,1,1,1)**2
+         v    =sqrt(v2)
+         visc(i,1,1,1)=0.5*v*h0(i)  ! This is the max possible viscosity
+         vmag(i) = v
+      enddo
+
+      ! set up diffusion matrix
+      if(ifield.eq.1) then ! vel
+        base_vsc = param(2)
+      elseif(ifield.eq.2)  then ! temp
+        base_vsc = param(8)
+      endif
+
+      call cfill(h1,base_vsc,n)
+      call rzero(h2,n)
+
+      nxyz=nx1*ny1*nz1
+      call copy     (uf,vmag,n)
+
+      alpha=0.5 ! works
+      alpha=1.0 ! works
+
+      call rone(diag,nx1)
+      trantyp = 2 ! quadratic
+      trantyp = 1 ! linear
+
+      if(trantyp.eq.1) then    ! linear dropdown
+        do k=1,ncut
+          j = nx1-k + 1
+          w = alpha*(float(ncut+1-k)/float(ncut))
+          diag(j) = 1.-w
+        enddo
+      elseif(trantyp.eq.2) then ! quadratic rolldown
+        do k=1,ncut
+          j = nx1-k + 1
+          w = alpha*((float(ncut+1-k)/float(ncut))**2)
+          diag(j) = 1.-w
+        enddo
+      endif
+
+      ifld=1
+      call evm_g_filter1(uf,diag,ifld,ibuild)
+      call sub2         (uf,vmag,n)
+      call convop       (r,uf)              ! Residual
+      vismx = glamax(r,n)
+      vismn = glamin(r,n)
+
+      ! add in diffusion
+c     imesh = 1   ! do these matter?
+c     isd = 1     ! do these matter?
+c     call axhelm (dtmp,uf,h1,h2,imesh,isd)
+c     call dssum  (dtmp,nx1,ny1,nz1)
+c     call invcol2(dtmp,bm1,n)
+c     call sub2   (r, dtmp, n)
+
+c     do e=1,nelv
+c        vmax=vlmax(visc(1,1,1,e),nxyz)
+c        call cfill(visc(1,1,1,e),vmax,nxyz)
+c     enddo
+
+      ! was missing a rescaling factor
+      call rone (uf,n)
+      uavg = gl2norm(vmag, n) / gl2norm(uf, n)
+      call cmult(uf,uavg,n)
+      call sub2 (uf, vmag, n)
+      uinf = glamax (uf, n)
+
+      icapcnt = 0
+      do i=1,n        ! evaluate viscosity
+        const    = .5 ! Tuning factor
+        const    = 1. ! Tuning factor
+        const    = 2. ! Tuning factor
+        ent_visc = const*abs(r(i))*(h0(i)**2) / uinf
+c       write(6,*) istep, visc(i,1,1,1),ent_visc,r(i)
+c    $           ,h0(i),' ent visc'
+        cap = visc(i,1,1,1)
+        visc(i,1,1,1)  = min(visc(i,1,1,1),ent_visc)
+        visc(i,1,1,1)  = abs(r(i))
+        if(abs(visc(i,1,1,1)-cap).le.1e-8) icapcnt = icapcnt + 1
+      enddo
+      icapsum = iglsum(icapcnt,1)
+      nsum = iglsum(n,1)
+
+      do e=1,nelv
+        vmax=vlmax(visc(1,1,1,e),nxyz)
+        call cfill(visc(1,1,1,e),vmax,nxyz)
+      enddo
+c     call rzero(visc,n) ! hard hack to see how nek runs
+c     vismx = glamax(visc,n)
+c     vismn = glamin(visc,n)
+      visav = glsc2(visc,bm1,n)/volvm1
+
+      visum = visum + vlsc2(visc,bm1,n)*dt
+      vsum  = glsum(visum,1)
+
+      if(nio.eq.0 .and. istep.le.1) write(6,*) 'Modes:',ncut
+     $            ,', transfer type(1-linear,2-quad)',trantyp
+     $            ,', alpha=',alpha
+
+      if(nio.eq.0)write(6,10) istep,vismx,vismn,visav,icapsum,nsum,vsum
+  10  format(i6,1p3e12.5,2i9,1p1e12.5' evm')
+
+      return
+      end
+c-----------------------------------------------------------------------
       subroutine spline(x,y,n,y2)
       parameter (nmax=100)
       dimension x(n),y(n),y2(n),u(nmax)
@@ -157,7 +350,10 @@ c-----------------------------------------------------------------------
       integer ifld_cls,ifld_clsr
       integer ifld_tls,ifld_tlsr
 
-      real Re, We, Fr, rhoratio, muratio
+      common /dimen/ Re,We,Fr,Pg
+      real Re, We, Fr, Pg
+
+      real rhoratio, muratio
       real udim, charl, rhol, mul, gdim, gamm
       real nul, nug
       real rhog,mug
@@ -166,7 +362,8 @@ c-----------------------------------------------------------------------
       save icalld
       data icalld /0/
 
-      common /dimen/ Re,We,Fr
+
+      real evm_getvisc
 
       e = gllel(eg)
 
@@ -182,18 +379,24 @@ c-----------------------------------------------------------------------
       mug = 1.8e-5 !/5.0
       nul = mul/rhol
       nug = mug/rhog
-
-      !https://www.sciencedirect.com/science/article/pii/S0021999197958472
-      udim = sqrt(gdim*charl)
+      udim = 1.0
 
       Re = rhol*udim*charl/mul
       Fr = udim**2.0/(gdim*charl)
       gamm = 0.06
       We = charl*rhol*udim**2.0/gamm
 
+c     Re = 3.e4
+c     Fr = sqrt(0.091827364554637)
+c     We = 0.011269332539972
+
       Re = 11000.0
       Fr = 4.0
       We = 1820.0
+      Re = 3.e4
+      Pg = 1.1e-4
+      We = 1.0/0.011269332539972
+
 
 
       if(ifield.eq.1)then
@@ -202,6 +405,8 @@ c-----------------------------------------------------------------------
         psi = min(1.0,psi)
         utrans = ((1.0-psi)*rhog + psi*rhol)/rhol
         udiff = ((1.0-psi)*mug + psi*mul)/mul/Re
+c       udiff=udiff+(1.0-psi)*evm_getvisc(ix,iy,iz,e)
+
         if(istep.le.2)then
           vtrans0(ix,iy,iz,e) = utrans
         else
@@ -228,11 +433,12 @@ c-----------------------------------------------------------------------
       include 'TOTAL'
       include 'NEKUSE'
 
-      common /dimen/ Re,We,Fr
-      real Re,We,Fr
+      common /dimen/ Re,We,Fr,Pg
+      real Re,We,Fr,Pg
       real sfx,sfy,sfz
 
       real svvx,svvy,svvz
+      real theta_g
 
       e = gllel(eg)
 
@@ -244,13 +450,18 @@ c-----------------------------------------------------------------------
       svvz = 0.0
 
       call surfacetension(ix,iy,iz,e,1./We,sfx,sfy,sfz)
-c     call surfacetension(ix,iy,iz,e,0.0,sfx,sfy,sfz)
       
       call svv_fluid(ix,iy,iz,e,svvx,svvy,svvz)
+      theta_g = 5.0/180.0*2.0*pi
 
-      ffx = sfx + svvx
-      ffy = sfy -1./Fr + svvy
-c     ffz = sfz + svvz
+      ffx = sfx +1./Fr*sin(theta_g) + svvx
+      ffy = sfy -1./Fr*cos(theta_g) + svvy
+      ffz = sfz + svvz
+
+
+      ffx = sfx + 2.0/Re + svvx
+      ffy = sfy -(Re*Pg)**(-2)  + svvy
+      ffz = sfz + svvz
 
       return
       end
@@ -291,13 +502,16 @@ c-----------------------------------------------------------------------
       integer ifld_tls,ifld_tlsr
 
       common /mypres/ pres(lx1,ly1,lz1,lelt)
+      real pres
+
+      common /myvps/ uvw(lx1,ly1,lz1,lelt,3), myps(lx1,ly1,lz1,lelt,4)
+      real uvw, myps
 
       integer e
       real yplus
       real xx,yy,heaviside
-      real y_height
+      real y_height, v_local
       real blasius
-      real pres
 
       e = gllel(eg)
 
@@ -307,20 +521,6 @@ c-----------------------------------------------------------------------
       ux   = 0.0
       uy   = 0.0
       uz   = 0.0
-
-      ux   = 1.0
-      if (yy.gt.1.0) then
-        ux = 1.0 - blasius(yy-1.0,1.3,1.0)
-      endif
-
-      temp = 1.0 - yy
-      pa  = pres(ix, iy, iz, e)
-      if(ifield.eq.ifld_tls .or. ifield.eq.ifld_tlsr)then
-        continue
-      elseif(ifield.eq.ifld_cls .or. ifield.eq.ifld_clsr)then
-        temp = heaviside(ix,iy,iz,e,temp,0.0)
-      endif
-
 
       return
       end
@@ -343,9 +543,12 @@ c-----------------------------------------------------------------------
       real xx,yy, x_max,heaviside, tx,ty, slope
       real h_local, v_local
       real phix, phiy
+      real alpha, ax, c, s
 
-      common /bump_usr/ A,H,W
-      real A,H,W,argx, bump
+      real fsr, fsi, disp, eps
+
+      fsr    =   -0.222195390880021
+      fsi    =   -0.777804609119979
 
       e = gllel(eg)
 
@@ -353,23 +556,28 @@ c-----------------------------------------------------------------------
       yy = ym1(ix,iy,iz,e)
 
 
-      ux = 1.0
+      ux = 0.0
       uy = 0.0
       uz = 0.0
 
-      h_local = 1.0 + 2.0*exp(-(xx-22.5)*(xx-22.5)/64.0)
-      slope = -( (xx-22.5)/8.0 ) * ( h_local - 1.0 )
-      tx = 1.0
-      ty = slope
-      phix = tx / sqrt(tx*tx + ty*ty)
-      phiy = ty / sqrt(tx*tx + ty*ty)
+      alpha = 1.0
+      eps = 1e-3
 
-      if (yy.gt.h_local) then
-        ux = 1.0 - blasius(yy-h_local,1.3,1.0)
+
+      ax = alpha*xx
+      disp = fsr*cos(ax) - fsi*sin(ax)
+      h_local = 1.0 + eps*disp
+
+      temp = h_local - yy
+      if (temp.gt.0) then ! underwater
+        c  = cos(ax)
+        s  = sin(ax)
+
+        ux = 1.0 - (temp/h_local)**2.0
+      else
+        ux = 1.0 - blasius(-temp, 1.3, 1.0)
+        ux = 1.0
       endif
-
-c     temp = h_local - yy
-      temp = (h_local - yy)*phix
 
       if(ifield.eq.ifld_tls .or. ifield.eq.ifld_tlsr)then
         continue
@@ -377,31 +585,6 @@ c     temp = h_local - yy
         temp = heaviside(ix,iy,iz,e,temp,0.0)
       endif
       
-      return
-      end
-c-----------------------------------------------------------------------
-      subroutine set_my_outflow
-      implicit none
-      include 'SIZE'
-      include 'TOTAL'
-      common /mypres/ pres(lx1,ly1,lz1,lelt)
-      integer nface, e, f, j
-      real pres
-
-      nface = 2*ldim
-      do e=1,nelv
-      do f=1,nface
-         if (cbc(e,f,1).eq.'O  ') then
-         if (f.eq.2) then
-            do j=1,lx1
-            pres(lx1, j, 1, e) = pr(1, j, 1, e)
-            enddo
-         endif
-         endif
-      enddo
-      enddo
-
-
       return
       end
 c-----------------------------------------------------------------------
@@ -415,19 +598,10 @@ c-----------------------------------------------------------------------
       integer ifld_cls,ifld_clsr
       integer ifld_tls,ifld_tlsr
 
-
       real ntlsr, nclsr
       real pta(3),ptb(3)
 
       integer ntot,i
-
-      real exact(lx1*ly1*lz1*lelv)
-      save exact
-      real psiini(lx1,ly1,lz1,lelv)
-      save psiini
-      real err
-      
-      real ls_volerr
 
       COMMON /SCRNS/ DVC  (LX1,LY1,LZ1,LELV),
      $               DV1  (LX1,LY1,LZ1,LELV),
@@ -436,20 +610,21 @@ c-----------------------------------------------------------------------
       real DVC,DV1,DV2,DFC
       real DIV1, DIV2
       real glsum
-      real fplot,fplot_next
-      save fplot_next
-      data fplot_next /0.0/
       integer pord
       integer ncut
-      real starttime
-      save starttime
 
       integer nface, f, e
       real w(lx1*ly1*lz1),w2(lx1*ly1*lz1)
       real total_flux, dq
 
-      ntot = lx1*ly1*lz1*nelv
+      real fplot,fplot_next
+      save fplot_next
+      data fplot_next /0.0/
 
+      common /myvisc/ visc(lx1,ly1,lz1,lelt)
+      real visc
+
+      ntot = lx1*ly1*lz1*nelv
 
 
       total_flux = 0.0
@@ -465,24 +640,6 @@ c-----------------------------------------------------------------------
       total_flux = glsum(total_flux,1)
       
 
-      call set_my_outflow
-
-
-
-      if(istep.eq.0)then
-        call copy(psiini,t(1,1,1,1,ifld_cls-1),ntot)
-        call copy(exact,t(1,1,1,1,ifld_tls-1),ntot)
-        do i=1,ntot
-          if(exact(i).ge.0.0)then
-            exact(i) = 1.0
-          else
-            exact(i) = 0.0
-          endif
-        enddo
-      endif
-      if(istep.eq.0 .and. nio.eq.0)then
-        open(unit=100,file='vol.dat',status='unknown')
-      endif
 
       pord = uparam(3)
       call extrappr(prext,pr,prlag(1,1,1,1,1),prlag(1,1,1,1,2),pord)
@@ -494,7 +651,6 @@ c-----------------------------------------------------------------------
 
       call LS_default_driver(ntlsr,nclsr)
 
-      err = ls_volerr(ifld_cls,exact,psiini)
 
       !Calculate Divergence norms of new VX,VY,VZ
       CALL OPDIV   (DVC,VX,VY,VZ)
@@ -508,32 +664,11 @@ c-----------------------------------------------------------------------
       CALL COL2    (DV2,BM1   ,NTOT)
       DIV2 = GLSUM (DV2,NTOT)/VOLVM1
       DIV2 = SQRT  (DIV2)
-      if(nio.eq.0)then 
-        write(*,*)"Volume error",err
-        write(100,*)time,err,DIV1,DIV2
-      endif
-
-      if(istep.eq.nsteps .and. nio.eq.0) close(100)
       
-      fplot = 0.1
-      if(istep.eq.0)starttime = time
-c     if(time-starttime .ge. fplot_next)then
-c       fplot_next = fplot_next + fplot
-c       pta(1) = 0.0
-c       pta(2) = 0.0
-c       pta(3) = 0.5
-c       ptb(1) = 5.0
-c       ptb(2) = 0.0
-c       ptb(3) = 0.5
-c       call lineplot(pta,ptb,1001)
-
-c       pta(1) = 0.0
-c       pta(2) = 0.0
-c       pta(3) = 0.5
-c       ptb(1) = 0.0
-c       ptb(2) = 1.25
-c       ptb(3) = 0.5
-c       call lineplot(pta,ptb,1001)
+c     fplot = 0.5
+c     if(time .ge. fplot_next)then
+c        fplot_next = fplot_next + fplot
+c        call outpost(vx,vy,vz,visc,t,'dif')
 c     endif
 
       return
@@ -565,9 +700,9 @@ c-----------------------------------------------------------------------
       integer ifld_tls,ifld_tlsr
 
       integer ntot,i
+      real xx, yy
+      real xlength
 
-      common /bump_usr/ A,H,W
-      real A,H,W,xx,yy,argx,A1, bump
 
 
       ifld_cls = 2
@@ -576,20 +711,12 @@ c-----------------------------------------------------------------------
       ifld_tlsr = 5
       
       ntot = lx1*ly1*lz1*nelt
-      A   = 24.0          ! center of the weir
-      H   = 2.5          ! height of the weir
-      W   = 0.5          ! width scaling
-      H   = 0.0
 
+      xlength = 2*pi
+      call rescale_x (xm1,0.0,xlength)
       do i=1,ntot
          xx   = xm1(i,1,1,1)
          yy   = ym1(i,1,1,1)
-
-         ! Smooth bump shape around x = 5
-         argx = (xx - A)/W
-         bump = H * exp(-argx*argx)   ! Gaussian-shaped bump
-
-         ym1(i,1,1,1) = yy + (1.0-yy/5.0)*bump
       enddo
       return
       end
@@ -627,7 +754,7 @@ c     parameters.
 
       !fluid
       svv_c0(1) = 1.0
-      svvcut(1) = (lx1-1.0)/3.0
+      svvcut(1) = (lx1-1.0)/2.0
 
       ! svv_c0(ifld_cls) = 1.0                 !ifld_cls
       ! svvcut(ifld_cls) = (lx1-1.0)/2.0-1.0
@@ -658,8 +785,7 @@ c     scalar 3
 
 c     scalar 3      
       svv_c0(ifld_tlsr) = 2.0                  !ifld_tlsr
-      svvcut(ifld_tlsr) = (lx1-1.0)/2.0
-      if(lx1.gt.7) svvcut(ifld_tlsr) = (lx1-1.0)/3.0
+      svvcut(ifld_tlsr) = (lx1-1.0)/3.0
       ! svv_k0(4) = 1.5
       ! svv_k1(4) = 1.5
       ! ifnlsvv(4) = .false.

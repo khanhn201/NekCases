@@ -9,23 +9,23 @@ stopAt = endTime
 endTime = 200 #10e-4
 #numSteps = 50
 
-dt = 1e-02
+dt = 1e-03
 timeStepper = bdf2 #With bdf2 SF does not work well
 variabledt = yes
 targetCFL = 0.1
 extrapolation = OIFS
 
 writeControl = runTime
-writeInterval = 5e-1
+writeInterval = 1e-2
 # writeInterval = 1
 
 userParam01 = 0.01     #Freq of TLSR
 userParam02 = 0.001      #Freq of CLSR
 userParam03 = 2    #Pressure extrapolation order
 
-#filtering = hpfrt
-#filterModes = 2
-#filterWeight = 10.0
+filtering = hpfrt
+filterModes = 2
+filterWeight = 10.0
 
 [PROBLEMTYPE]
 equation = lowMachNS

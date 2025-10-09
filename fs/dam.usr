@@ -286,57 +286,6 @@ c        Initialize Blasius profile and spline fitting routine.
       return
       end
 c-----------------------------------------------------------------------
-      subroutine surface_flux_scal(dq,scal,qx,qy,qz,e,f,w,w2)
-
-      include 'SIZE'
-      include 'TOTAL'
-      parameter (l=lx1*ly1*lz1)
-
-      real scal(l,1),qx(l,1),qy(l,1),qz(l,1),w(lx1,ly1,lz1),w2(l)
-      real scal_pos(l)      ! Temporary copy
-      real scal_p
-      integer e,f
-
-      do i = 1,l
-         scal_p = scal(i,e)
-         if (scal_p.gt.0.5) then
-           scal_pos(i) = 1.0
-         else
-           scal_pos(i) = 0.0
-         endif
-      enddo
-
-      call col3    (w2,scal_pos,qx(1,e),l)
-      call faccl3  (w,w2,unx(1,1,f,e),f)
-
-      call col3    (w2,scal_pos,qy(1,e),l)
-      call faddcl3 (w,w2,uny(1,1,f,e),f)
-
-      if (ldim.gt.2) then
-         call col3    (w2,scal_pos,qz(1,e),l)
-         call faddcl3 (w,w2,unz(1,1,f,e),f)
-      endif
-
-      call dsset(lx1,ly1,lz1)
-      iface  = eface1(f)
-      js1    = skpdat(1,iface)
-      jf1    = skpdat(2,iface)
-      jskip1 = skpdat(3,iface)
-      js2    = skpdat(4,iface)
-      jf2    = skpdat(5,iface)
-      jskip2 = skpdat(6,iface)
-
-      dq = 0
-      i  = 0
-      do 100 j2=js2,jf2,jskip2
-      do 100 j1=js1,jf1,jskip1
-         i = i+1
-         dq    = dq + area(i,1,f,e)*w(j1,j2,1)
-  100 continue
-
-      return
-      end
-c-----------------------------------------------------------------------
       subroutine uservp(ix,iy,iz,eg) ! set variable properties
       implicit none
       integer ix,iy,iz,eg,e
@@ -375,8 +324,10 @@ c-----------------------------------------------------------------------
       gdim = 9.81
       rhol = 1000.0
       rhog = 1.2
+c     rhog = 1000.0
       mul = 1e-3
       mug = 1.8e-5 !/5.0
+c     mug = 1e-3
       nul = mul/rhol
       nug = mug/rhog
       udim = 1.0
@@ -452,14 +403,9 @@ c-----------------------------------------------------------------------
       call surfacetension(ix,iy,iz,e,1./We,sfx,sfy,sfz)
       
       call svv_fluid(ix,iy,iz,e,svvx,svvy,svvz)
-      theta_g = 5.0/180.0*2.0*pi
-
-      ffx = sfx +1./Fr*sin(theta_g) + svvx
-      ffy = sfy -1./Fr*cos(theta_g) + svvy
-      ffz = sfz + svvz
-
 
       ffx = sfx + 2.0/Re + svvx
+c     ffx = sfx + svvx
       ffy = sfy -(Re*Pg)**(-2)  + svvy
       ffz = sfz + svvz
 
@@ -547,6 +493,9 @@ c-----------------------------------------------------------------------
 
       real fsr, fsi, disp, eps
 
+      common /fsarray/ ub(lx1,ly1,lz1,lelt),vb(lx1,ly1,lz1,lelt)
+      real ub, vb
+
       fsr    =   -0.222195390880021
       fsi    =   -0.777804609119979
 
@@ -566,19 +515,12 @@ c-----------------------------------------------------------------------
 
       ax = alpha*xx
       disp = fsr*cos(ax) - fsi*sin(ax)
-      h_local = 1.0 + eps*disp
+      h_local = eps*disp
+
+      ux = ub(ix,iy,iz,e)
+      uy = vb(ix,iy,iz,e)
 
       temp = h_local - yy
-      if (temp.gt.0) then ! underwater
-        c  = cos(ax)
-        s  = sin(ax)
-
-        ux = 1.0 - (temp/h_local)**2.0
-      else
-        ux = 1.0 - blasius(-temp, 1.3, 1.0)
-        ux = 1.0
-      endif
-
       if(ifield.eq.ifld_tls .or. ifield.eq.ifld_tlsr)then
         continue
       elseif(ifield.eq.ifld_cls .or. ifield.eq.ifld_clsr)then
@@ -615,6 +557,7 @@ c-----------------------------------------------------------------------
 
       integer nface, f, e
       real w(lx1*ly1*lz1),w2(lx1*ly1*lz1)
+      real bfluid(lx1*ly1*lz1*lelt)
       real total_flux, dq
 
       real fplot,fplot_next
@@ -624,21 +567,36 @@ c-----------------------------------------------------------------------
       common /myvisc/ visc(lx1,ly1,lz1,lelt)
       real visc
 
+      real vol, vy2, vy20, gamma_r, gr, gl, ge, vy2r, vy2l
+      real glsc3
+
+      save vy20, vy2l
+
+      common /fsarray/ ub(lx1,ly1,lz1,lelt),vb(lx1,ly1,lz1,lelt)
+      real ub, vb
+
+      gamma_r =    0.000052447145099
+
       ntot = lx1*ly1*lz1*nelv
+      call col3(bfluid, bm1, t, ntot)
+      vol = glsum(bfluid,ntot)
+      vy2 = glsc3(vy,bfluid,vy,ntot)/vol
 
+      if (vy2.gt.0.0) vy2 = sqrt(vy2)
 
-      total_flux = 0.0
-      nface = 2*ldim
-      do e=1,nelt
-      do f=1,nface
-         if (cbc(f,e,1).eq.'o  ') then ! Velocity outflow
-            call surface_flux_scal(dq,t,vx,vy,vz,e,f,w,w2)
-            total_flux = total_flux + dq
-         endif
-      enddo
-      enddo
-      total_flux = glsum(total_flux,1)
-      
+      if (istep.le.5) then
+         vy20 = vy2
+      else
+         vy2r = vy2/vy20
+         vy2l = vy2/vy2l
+         gr = log(vy2r)/time
+         gl = log(vy2l)/dt
+         ge = abs(gr - gamma_r)/gamma_r
+         if (nid.eq.0) write(6,1) istep,time,vol,vy2,vy2r,gr,gl,ge
+    1    format(i8,1p7e15.7,' AMP')
+      endif
+      vy2l = vy2
+
 
 
       pord = uparam(3)
@@ -670,6 +628,9 @@ c     if(time .ge. fplot_next)then
 c        fplot_next = fplot_next + fplot
 c        call outpost(vx,vy,vz,visc,t,'dif')
 c     endif
+      if (istep.le.5) then
+      call outpost(ub,vb,vz,pr,t,'dif')
+      endif
 
       return
       end
@@ -718,6 +679,9 @@ c-----------------------------------------------------------------------
          xx   = xm1(i,1,1,1)
          yy   = ym1(i,1,1,1)
       enddo
+
+      call gen_pert_ic ! perturbation i.c.s
+
       return
       end
 c-----------------------------------------------------------------------
@@ -794,3 +758,83 @@ c     scalar 3
       return
       end
 c---------------------------------------------------------------------
+      subroutine gen_pert_ic ! perturbation i.c.s
+      include 'SIZE'
+      include 'TOTAL'
+      include 'ZPER'   ! nely
+
+      common /fsarray/ ub(lx1,ly1,lz1,lelt),vb(lx1,ly1,lz1,lelt)
+      common /scrns/ ur(ly1,100),ui(ly1,100),vr(ly1,100),vi(ly1,100)
+      common /scruz/ wk(ly1,100)
+
+      integer e,eg,ex,ey,ez
+      real eps, epsamp, alpha
+      
+      nelx = 40
+      nely = 25
+      nelz = 1
+
+      alpha = 1.0
+
+      call rzero(ur,ly1*100)
+      call rzero(ui,ly1*100)
+      call rzero(vr,ly1*100)
+      call rzero(vi,ly1*100)
+
+      m = ny1*10 ! u2.txt has 10 elements in fluid domain
+      if (nid.eq.0) then
+         open(unit=98,file='u2.txt')
+         do i=1,m
+            read(98,*) ur(i,1),ui(i,1),vr(i,1),vi(i,1)
+         enddo
+         close(98)
+      endif
+
+      call gop ( ur , wk , '+  ', m ) ! gather over all procs
+      call gop ( ui , wk , '+  ', m )
+      call gop ( vr , wk , '+  ', m )
+      call gop ( vi , wk , '+  ', m )
+
+
+      n = nx1*ny1*nz1*nelv
+
+      eps = 1e-3
+      epsamp = eps
+
+      do e=1,nelv
+      do j=1,ny1
+      do i=1,nx1
+         x  = xm1(i,j,1,e)
+         y  = ym1(i,j,1,e)
+         ax = alpha*x
+         c  = cos(ax)
+         s  = sin(ax)
+         eg = lglel(e)
+
+         call get_exyz(ex,ey,ez,eg,nelx,nely,nelz)
+
+         if (ey.le.10) then
+           ub(i,j,1,e) = epsamp*(ur(j,ey)*c - ui(j,ey)*s)
+           vb(i,j,1,e) = epsamp*(vr(j,ey)*c - vi(j,ey)*s)
+           ubase = 1.0-y*y
+           ub(i,j,1,e) = ub(i,j,1,e) + ubase
+         elseif (ey.le.20) then
+           ub(i,j,1,e) = epsamp*(ur(m, 1)*c - ui(m, 1)*s)
+           vb(i,j,1,e) = epsamp*(vr(m, 1)*c - vi(m, 1)*s)
+           ub(i,j,1,e)=epsamp*(ur(ny1+1-j,21-ey)*c
+     $                   -ui(ny1+1-j,21-ey)*s)
+           vb(i,j,1,e)=epsamp*(vr(ny1+1-j,21-ey)*c
+     $                   -vi(ny1+1-j,21-ey)*s)
+           ubase = 1.0
+           ub(i,j,1,e) = ub(i,j,1,e) + ubase
+         else
+           vb(i,j,1,e) = 0.0
+           ub(i,j,1,e) = 1.0
+         endif
+      enddo
+      enddo
+      enddo
+
+      return
+      end
+

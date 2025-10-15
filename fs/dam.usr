@@ -1,291 +1,6 @@
       include "experimental/lvlSet.f"
       include "experimental/lserrors.f"
 c-----------------------------------------------------------------------
-      real function evm_getvisc(i,j,k,e)
-      include 'SIZE'
-      include 'TOTAL'
-      real tlast
-      data tlast   /-1./
-      save tlast
-      integer e, ifld
-      common /myvisc/ visc(lx1,ly1,lz1,lelt)
-
-
-      if (time.ne.tlast) call evm_setvisc
-      tlast = time
-
-      evm_getvisc = visc(i,j,k,e)
-
-      return
-      end
-c-----------------------------------------------------------------------
-      subroutine evm_g_filter1(u,diag,ifld,ibuild)
-c
-c     Generalized filter: F(u) with F = J^T D J, where D=diag(diag)
-c
-      include 'SIZE'
-      include 'TOTAL'
-
-      real u(1),diag(1)
-
-      parameter (lxx=lx1*lx1,lxyz=lx1*ly1*lz1)
-      common /cgflt1/ f(lxx),wk1(lxyz),wk2(lxyz),wk3(lxyz)
-
-      ifldt  = ifield
-      ifield = ifld
-
-      if (ibuild.eq.0) call build_filter(f,diag,nx1)
-      ibuild=1
-
-      call filterq(u,f,nx1,nz1,wk1,wk2,wk3,if3d,umax)
-
-      ifield = ifldt
-
-      return
-      end
-c-----------------------------------------------------------------------
-      subroutine evm_setvisc
-      include 'SIZE'
-      include 'TOTAL'
-
-      parameter (lt=lx1*ly1*lz1*lelt)
-      real vmag(lt)
-      common /myvisc/ visc(lx1,ly1,lz1,lelt)
-      common /scruz/  h0(lt),uf(lt),r(lt),diag(lx1)
-      real  h0, uf, r, diag
-
-      common /screvm/ h1(lt), h2(lt), dtmp(lt)
-      real  h1, h2, dtmp
-
-      integer ibuild,e
-      save    ibuild
-      data    ibuild / 0 /
-
-      real    visum 
-      save    visum 
-      data    visum  / 0. /
-      integer ncut, nc
-
-      integer trantyp ! changes transfer function
-      integer ncuttyp ! changes cut-off modes number
-
-      ncuttyp = 1 ! constant 3 modes
-      ncuttyp = 2 ! 1/4 of lx1
-      ncuttyp = 3 ! 1/5 of lx1
-      if(ncuttyp.eq.1) then
-        nc = lx1-3
-        if(lx1.le.3) then
-          write(6,*) 'evm: lx1=',lx1,'<=3, set nc=1'
-          nc = 1
-        endif
-      elseif(ncuttyp.eq.2) then
-        nc   = int((3./4.)*lx1)
-      elseif(ncuttyp.eq.3) then
-        nc   = int((4./5.)*lx1)
-      endif
-      ncut = lx1 - nc
-
-      n = nx1*ny1*nz1*nelv
-      dinv=1./ldim
-      do i=1,n
-         h0(i)=bm1(i,1,1,1)**dinv ! Local length scale
-         v2   =vx(i,1,1,1)**2+vy(i,1,1,1)**2+vz(i,1,1,1)**2
-         v    =sqrt(v2)
-         visc(i,1,1,1)=0.5*v*h0(i)  ! This is the max possible viscosity
-         vmag(i) = v
-      enddo
-
-      ! set up diffusion matrix
-      if(ifield.eq.1) then ! vel
-        base_vsc = param(2)
-      elseif(ifield.eq.2)  then ! temp
-        base_vsc = param(8)
-      endif
-
-      call cfill(h1,base_vsc,n)
-      call rzero(h2,n)
-
-      nxyz=nx1*ny1*nz1
-      call copy     (uf,vmag,n)
-
-      alpha=0.5 ! works
-      alpha=1.0 ! works
-
-      call rone(diag,nx1)
-      trantyp = 2 ! quadratic
-      trantyp = 1 ! linear
-
-      if(trantyp.eq.1) then    ! linear dropdown
-        do k=1,ncut
-          j = nx1-k + 1
-          w = alpha*(float(ncut+1-k)/float(ncut))
-          diag(j) = 1.-w
-        enddo
-      elseif(trantyp.eq.2) then ! quadratic rolldown
-        do k=1,ncut
-          j = nx1-k + 1
-          w = alpha*((float(ncut+1-k)/float(ncut))**2)
-          diag(j) = 1.-w
-        enddo
-      endif
-
-      ifld=1
-      call evm_g_filter1(uf,diag,ifld,ibuild)
-      call sub2         (uf,vmag,n)
-      call convop       (r,uf)              ! Residual
-      vismx = glamax(r,n)
-      vismn = glamin(r,n)
-
-      ! add in diffusion
-c     imesh = 1   ! do these matter?
-c     isd = 1     ! do these matter?
-c     call axhelm (dtmp,uf,h1,h2,imesh,isd)
-c     call dssum  (dtmp,nx1,ny1,nz1)
-c     call invcol2(dtmp,bm1,n)
-c     call sub2   (r, dtmp, n)
-
-c     do e=1,nelv
-c        vmax=vlmax(visc(1,1,1,e),nxyz)
-c        call cfill(visc(1,1,1,e),vmax,nxyz)
-c     enddo
-
-      ! was missing a rescaling factor
-      call rone (uf,n)
-      uavg = gl2norm(vmag, n) / gl2norm(uf, n)
-      call cmult(uf,uavg,n)
-      call sub2 (uf, vmag, n)
-      uinf = glamax (uf, n)
-
-      icapcnt = 0
-      do i=1,n        ! evaluate viscosity
-        const    = .5 ! Tuning factor
-        const    = 1. ! Tuning factor
-        const    = 2. ! Tuning factor
-        ent_visc = const*abs(r(i))*(h0(i)**2) / uinf
-c       write(6,*) istep, visc(i,1,1,1),ent_visc,r(i)
-c    $           ,h0(i),' ent visc'
-        cap = visc(i,1,1,1)
-        visc(i,1,1,1)  = min(visc(i,1,1,1),ent_visc)
-        visc(i,1,1,1)  = abs(r(i))
-        if(abs(visc(i,1,1,1)-cap).le.1e-8) icapcnt = icapcnt + 1
-      enddo
-      icapsum = iglsum(icapcnt,1)
-      nsum = iglsum(n,1)
-
-      do e=1,nelv
-        vmax=vlmax(visc(1,1,1,e),nxyz)
-        call cfill(visc(1,1,1,e),vmax,nxyz)
-      enddo
-c     call rzero(visc,n) ! hard hack to see how nek runs
-c     vismx = glamax(visc,n)
-c     vismn = glamin(visc,n)
-      visav = glsc2(visc,bm1,n)/volvm1
-
-      visum = visum + vlsc2(visc,bm1,n)*dt
-      vsum  = glsum(visum,1)
-
-      if(nio.eq.0 .and. istep.le.1) write(6,*) 'Modes:',ncut
-     $            ,', transfer type(1-linear,2-quad)',trantyp
-     $            ,', alpha=',alpha
-
-      if(nio.eq.0)write(6,10) istep,vismx,vismn,visav,icapsum,nsum,vsum
-  10  format(i6,1p3e12.5,2i9,1p1e12.5' evm')
-
-      return
-      end
-c-----------------------------------------------------------------------
-      subroutine spline(x,y,n,y2)
-      parameter (nmax=100)
-      dimension x(n),y(n),y2(n),u(nmax)
-      if (n.gt.nmax) then
-         write(6,11) n,nmax
-   11    FORMAT(2X,'ERROR:  Attempt to fit a spline with',I5
-     $            ,'greater than',I4,' points.'
-     $       ,/,2X,'Recompile routine SPLINE.')
-         call exitti('routine spline fail$',n)
-      endif
-      y2(1)=0.0
-      u(1) =0.0
-      do 10 i=2,n-1
-         ir=i+1
-         il=i-1
-         sig=(x(i)-x(il))/(x(ir)-x(il))
-         p=sig*y2(il)+2.
-         y2(i)=(sig-1.)/p
-         u(i)= ( 6.*
-     $     ( (y(ir)-y(i))/(x(ir)-x(i))-(y(i)-y(il))/ (x(i)-x(il) ) )
-     $            / (x(ir)-x(il))
-     $    - sig*u(il) )/p
-   10 continue
-      qn=0.0
-      un=0.0
-      y2(n)=(un-qn*u(n-1))/(qn*y2(n-1)+1.)
-      do 20 k=n-1,1,-1
-         y2(k)=y2(k)*y2(k+1)+u(k)
-   20 continue
-      return
-      end
-c-----------------------------------------------------------------------
-      subroutine splint(xa,ya,y2a,n,x,y)
-c     p. 88-89, numerical recipes
-      real xa(n),ya(n),y2a(n)
-      klo=1
-      khi=n
-    1   if ((khi-klo).gt.1) then
-           k=(khi+klo)/2
-           if (xa(k).gt.x) then
-              khi=k
-           else
-              klo=k
-           endif
-           goto 1
-        endif
-      h=xa(khi)-xa(klo)
-      if (h.eq.0) then
-         write(6,*) xa(khi), 'splint failure',khi
-         return
-      endif
-      a=(xa(khi)-x)/h
-      b=(x-xa(klo))/h
-      y=a*ya(klo)+b*ya(khi)+
-     $  ((a**3-a)*y2a(klo)+(b**3-b)*y2a(khi))*(h**2)/6.
-      return
-      end
-c-----------------------------------------------------------------------
-      function blasius(y,delta,u)
-c     Return the velocity at a given y value for specified delta and U.
-      integer icalld
-      save    icalld
-      data    icalld /0/
-      dimension u0(45),y0(45),work(45)
-      save      u0    ,y0    ,work
-      data      u0 / 0.00000 , 0.06641 , 0.13277 , 0.19894 , 0.26471
-     $             , 0.32979 , 0.39378 , 0.45627 , 0.51676 , 0.57477
-     $             , 0.62977 , 0.68132 , 0.72899 , 0.77246 , 0.81152
-     $             , 0.84605 , 0.87609 , 0.90177 , 0.92333 , 0.94112
-     $             , 0.95552 , 0.96696 , 0.97587 , 0.98269 , 0.98779
-     $             , 0.99155 , 0.99425 , 0.99616 , 0.99748 , 0.99838
-     $             , 0.99898 , 0.99937 , 0.99961 , 0.99977 , 0.99987
-     $             , 0.99992 , 0.99996 , 0.99998 , 0.99999 , 1.00000
-     $             , 1.00000 , 1.00000 , 1.00000 , 1.00000 , 1.00000 /
-      if (icalld.eq.0) then
-c        Initialize Blasius profile and spline fitting routine.
-         icalld=1
-         do 10 i=1,45
-            y0(i)=float(i-1)/5.0
-   10    continue
-         call spline(y0,u0,45,work)
-      endif
-      eta=5.0*y/delta
-      if (eta.gt.8.5) then
-         blasius=u
-      else
-         call splint(y0,u0,work,45,eta,vel)
-         blasius=vel*u
-      endif
-      return
-      end
-c-----------------------------------------------------------------------
       subroutine uservp(ix,iy,iz,eg) ! set variable properties
       implicit none
       integer ix,iy,iz,eg,e
@@ -312,8 +27,6 @@ c-----------------------------------------------------------------------
       data icalld /0/
 
 
-      real evm_getvisc
-
       e = gllel(eg)
 
 !     These routine is not called by external solver
@@ -324,10 +37,10 @@ c-----------------------------------------------------------------------
       gdim = 9.81
       rhol = 1000.0
       rhog = 1.2
-c     rhog = 1000.0
+      rhog = 1.2e-6
+
       mul = 1e-3
       mug = 1.8e-5 !/5.0
-c     mug = 1e-3
       nul = mul/rhol
       nug = mug/rhog
       udim = 1.0
@@ -352,11 +65,12 @@ c     We = 0.011269332539972
 
       if(ifield.eq.1)then
         psi = t(ix,iy,iz,e,ifld_cls-1)
+c       mug = mug*(1.0 - exp(-abs(0.5-psi)/0.07))  ! 0.0 near 0.5, then approaches 1.0
+c       mul = mul*(1.0 - exp(-abs(0.5-psi)/0.07))  ! 0.0 near 0.5, then approaches 1.0
         psi = max(0.0,psi)
         psi = min(1.0,psi)
         utrans = ((1.0-psi)*rhog + psi*rhol)/rhol
         udiff = ((1.0-psi)*mug + psi*mul)/mul/Re
-c       udiff=udiff+(1.0-psi)*evm_getvisc(ix,iy,iz,e)
 
         if(istep.le.2)then
           vtrans0(ix,iy,iz,e) = utrans
@@ -384,12 +98,17 @@ c-----------------------------------------------------------------------
       include 'TOTAL'
       include 'NEKUSE'
 
+      common /ls_usr/ ifld_cls,ifld_clsr,
+     $                ifld_tls,ifld_tlsr 
+      integer ifld_cls,ifld_clsr
+      integer ifld_tls,ifld_tlsr
+
       common /dimen/ Re,We,Fr,Pg
       real Re,We,Fr,Pg
       real sfx,sfy,sfz
 
       real svvx,svvy,svvz
-      real theta_g
+      real theta_g, psi
 
       e = gllel(eg)
 
@@ -404,9 +123,10 @@ c-----------------------------------------------------------------------
       
       call svv_fluid(ix,iy,iz,e,svvx,svvy,svvz)
 
+      psi = t(ix,iy,iz,e,ifld_cls-1)
       ffx = sfx + 2.0/Re + svvx
 c     ffx = sfx + svvx
-      ffy = sfy -(Re*Pg)**(-2)  + svvy
+      ffy = sfy -(Re*Pg)**(-2)*psi  + svvy
       ffz = sfz + svvz
 
       return
@@ -419,10 +139,6 @@ c-----------------------------------------------------------------------
       include 'SIZE'
       include 'TOTAL'
       include 'NEKUSE'
-      common /ls_usr/ ifld_cls,ifld_clsr,
-     $                ifld_tls,ifld_tlsr 
-      integer ifld_cls,ifld_clsr
-      integer ifld_tls,ifld_tlsr
       real signls
 
       e = gllel(eg)
@@ -442,10 +158,6 @@ c-----------------------------------------------------------------------
       include 'SIZE'
       include 'TOTAL'
       include 'NEKUSE'
-      common /ls_usr/ ifld_cls,ifld_clsr,
-     $                ifld_tls,ifld_tlsr 
-      integer ifld_cls,ifld_clsr
-      integer ifld_tls,ifld_tlsr
 
       common /mypres/ pres(lx1,ly1,lz1,lelt)
       real pres
@@ -455,7 +167,7 @@ c-----------------------------------------------------------------------
 
       integer e
       real yplus
-      real xx,yy,heaviside
+      real xx,yy
       real y_height, v_local
       real blasius
 
@@ -483,48 +195,35 @@ c-----------------------------------------------------------------------
      $                ifld_tls,ifld_tlsr 
       integer ifld_cls,ifld_clsr
       integer ifld_tls,ifld_tlsr
-
-      real blasius
-
-      real xx,yy, x_max,heaviside, tx,ty, slope
-      real h_local, v_local
-      real phix, phiy
-      real alpha, ax, c, s
-
-      real fsr, fsi, disp, eps
+      real xx,yy, x_max
 
       common /fsarray/ ub(lx1,ly1,lz1,lelt),vb(lx1,ly1,lz1,lelt)
       real ub, vb
+      common /fstemp/ temp_ic(lx1,ly1,lz1,lelv,2)
+      real temp_ic
+      real alpha, fsr, fsi, ax, eps, disp, heaviside, h_local
 
       fsr    =   -0.222195390880021
       fsi    =   -0.777804609119979
-
       e = gllel(eg)
 
       xx = xm1(ix,iy,iz,e)
       yy = ym1(ix,iy,iz,e)
 
-
-      ux = 0.0
-      uy = 0.0
-      uz = 0.0
-
-      alpha = 1.0
-      eps = 1e-3
-
-
-      ax = alpha*xx
-      disp = fsr*cos(ax) - fsi*sin(ax)
-      h_local = eps*disp
-
       ux = ub(ix,iy,iz,e)
       uy = vb(ix,iy,iz,e)
-
-      temp = h_local - yy
-      if(ifield.eq.ifld_tls .or. ifield.eq.ifld_tlsr)then
-        continue
-      elseif(ifield.eq.ifld_cls .or. ifield.eq.ifld_clsr)then
-        temp = heaviside(ix,iy,iz,e,temp,0.0)
+      uz = 0.0
+      if(ifield.eq.2)then
+        temp = temp_ic(ix, iy, iz, e, 1)
+      endif
+      if(ifield.eq.3)then
+        temp = temp_ic(ix, iy, iz, e, 2)
+      endif
+      if(ifield.eq.4)then
+        temp = temp_ic(ix, iy, iz, e, 1)
+      endif
+      if(ifield.eq.5)then
+        temp = temp_ic(ix, iy, iz, e, 2)
       endif
       
       return
@@ -535,10 +234,6 @@ c-----------------------------------------------------------------------
       include 'SIZE'
       include 'TOTAL'
 
-      common /ls_usr/ ifld_cls,ifld_clsr,
-     $                ifld_tls,ifld_tlsr 
-      integer ifld_cls,ifld_clsr
-      integer ifld_tls,ifld_tlsr
 
       real ntlsr, nclsr
       real pta(3),ptb(3)
@@ -567,35 +262,26 @@ c-----------------------------------------------------------------------
       common /myvisc/ visc(lx1,ly1,lz1,lelt)
       real visc
 
-      real vol, vy2, vy20, gamma_r, gr, gl, ge, vy2r, vy2l
+      real vol, vy2, vy20, gr, gl, ge, vy2r, vy2l,timestart
       real glsc3
 
-      save vy20, vy2l
+      save vy20, vy2l, timestart
 
       common /fsarray/ ub(lx1,ly1,lz1,lelt),vb(lx1,ly1,lz1,lelt)
+      common /fstemp/ temp_ic(lx1,ly1,lz1,lelv,2)
       real ub, vb
+      real temp_ic
 
-      gamma_r =    0.000052447145099
+      real vxx(lx1,ly1,lz1,lelt),vyy(lx1,ly1,lz1,lelt)
+      real vzz(lx1,ly1,lz1,lelt)
+
+      real psifluid(lx1,ly1,lz1,lelv)
+
+      common /fsparam/ eps,alpha,gamma_r,gamma_i
+      real gamma_r,gamma_i, eps, alpha
 
       ntot = lx1*ly1*lz1*nelv
-      call col3(bfluid, bm1, t, ntot)
-      vol = glsum(bfluid,ntot)
-      vy2 = glsc3(vy,bfluid,vy,ntot)/vol
 
-      if (vy2.gt.0.0) vy2 = sqrt(vy2)
-
-      if (istep.le.5) then
-         vy20 = vy2
-      else
-         vy2r = vy2/vy20
-         vy2l = vy2/vy2l
-         gr = log(vy2r)/time
-         gl = log(vy2l)/dt
-         ge = abs(gr - gamma_r)/gamma_r
-         if (nid.eq.0) write(6,1) istep,time,vol,vy2,vy2r,gr,gl,ge
-    1    format(i8,1p7e15.7,' AMP')
-      endif
-      vy2l = vy2
 
 
 
@@ -610,27 +296,63 @@ c-----------------------------------------------------------------------
       call LS_default_driver(ntlsr,nclsr)
 
 
-      !Calculate Divergence norms of new VX,VY,VZ
-      CALL OPDIV   (DVC,VX,VY,VZ)
-      CALL DSSUM   (DVC,lx1,ly1,lz1)
-      CALL COL2    (DVC,BINVM1,NTOT)
-
-      CALL COL3    (DV1,DVC,BM1,NTOT)
-      DIV1 = GLSUM (DV1,NTOT)/VOLVM1
-
-      CALL COL3    (DV2,DVC,DVC,NTOT)
-      CALL COL2    (DV2,BM1   ,NTOT)
-      DIV2 = GLSUM (DV2,NTOT)/VOLVM1
-      DIV2 = SQRT  (DIV2)
-      
-c     fplot = 0.5
-c     if(time .ge. fplot_next)then
-c        fplot_next = fplot_next + fplot
-c        call outpost(vx,vy,vz,visc,t,'dif')
-c     endif
-      if (istep.le.5) then
-      call outpost(ub,vb,vz,pr,t,'dif')
+      ! Initialize the first 5 steps with the same IC
+      if (istep.lt.10) then
+        call gen_pert_ic
+        call opcopy(vx,vy,vz,ub,vb,vb)
+        call copy(t(1,1,1,1,1),temp_ic(1,1,1,1,1),ntot)
+        call copy(t(1,1,1,1,2),temp_ic(1,1,1,1,2),ntot)
+        call copy(t(1,1,1,1,3),temp_ic(1,1,1,1,1),ntot)
+        call copy(t(1,1,1,1,4),temp_ic(1,1,1,1,2),ntot)
       endif
+
+      ! Calculate growth rate
+      call copy(psifluid,t,ntot)
+      do i=1,ntot
+          if(psifluid(i,1,1,1).ge.0.5)then
+            psifluid(i,1,1,1) = (psifluid(i,1,1,1)-0.5)*2.0
+            psifluid(i,1,1,1) = 1.0
+          else
+            psifluid(i,1,1,1) = 0.0
+          endif
+          psifluid(i,1,1,1) = psifluid(i,1,1,1)
+      enddo
+      call col3(bfluid, bm1, psifluid, ntot)
+      vol = glsum(bfluid,ntot)
+      vy2 = glsc3(vy,bfluid,vy,ntot)/vol
+
+      if (vy2.gt.0.0) vy2 = sqrt(vy2)
+
+      if (istep.le.0) then
+         vy20 = vy2
+c        timestart=time
+      else
+         vy2r = vy2/vy20
+         vy2l = vy2/vy2l
+         gr = log(vy2r)/time
+         gl = log(vy2l)/dt
+         ge = abs(gr - gamma_r)/gamma_r
+         if (nid.eq.0) write(6,1) istep,time,vol,vy2,vy2r,gr,gl,ge
+    1    format(i8,1p7e15.7,' AMP')
+      endif
+      vy2l = vy2
+
+      
+
+
+
+      fplot = 0.1
+c     if(time .ge. fplot_next)then
+         call copy(vxx,vx,ntot)
+         call copy(vyy,vy,ntot)
+         call copy(vzz,vz,ntot)
+         call col2(vxx,psifluid,ntot)
+         call col2(vyy,psifluid,ntot)
+         call col2(vzz,psifluid,ntot)
+
+         fplot_next = fplot_next + fplot
+         call outpost(vxx,vyy,vzz,bfluid,t(1,1,1,1,3),'dif')
+c     endif
 
       return
       end
@@ -664,6 +386,13 @@ c-----------------------------------------------------------------------
       real xx, yy
       real xlength
 
+      common /fsparam/ eps,alpha,gamma_r,gamma_i
+      real gamma_r,gamma_i, eps, alpha
+
+      gamma_i =   -1.177455429168827
+      gamma_r =    0.000052447145099
+      eps = 1e-4
+      alpha = 1.0
 
 
       ifld_cls = 2
@@ -763,18 +492,32 @@ c---------------------------------------------------------------------
       include 'TOTAL'
       include 'ZPER'   ! nely
 
+      common /ls_usr/ ifld_cls,ifld_clsr,
+     $                ifld_tls,ifld_tlsr 
+      integer ifld_cls,ifld_clsr
+      integer ifld_tls,ifld_tlsr
       common /fsarray/ ub(lx1,ly1,lz1,lelt),vb(lx1,ly1,lz1,lelt)
+      common /fstemp/ temp_ic(lx1,ly1,lz1,lelv,2)
+      real ub, vb
+      real temp_ic
+
       common /scrns/ ur(ly1,100),ui(ly1,100),vr(ly1,100),vi(ly1,100)
       common /scruz/ wk(ly1,100)
 
       integer e,eg,ex,ey,ez
-      real eps, epsamp, alpha
-      
-      nelx = 40
-      nely = 25
-      nelz = 1
 
-      alpha = 1.0
+      common /fsparam/ eps,alpha,gamma_r,gamma_i
+      real gamma_r, eps, epsamp, alpha
+      real fsr, fsi
+
+      real temp, heaviside, tempi
+
+      fsr    =   -0.222195390880021
+      fsi    =   -0.777804609119979
+
+      nelx = 40
+      nely = 30
+      nelz = 1
 
       call rzero(ur,ly1*100)
       call rzero(ui,ly1*100)
@@ -798,29 +541,30 @@ c---------------------------------------------------------------------
 
       n = nx1*ny1*nz1*nelv
 
-      eps = 1e-3
-      epsamp = eps
+      epsamp = eps*exp(gamma_r*time)
 
+      do k=1,2
       do e=1,nelv
       do j=1,ny1
       do i=1,nx1
          x  = xm1(i,j,1,e)
          y  = ym1(i,j,1,e)
-         ax = alpha*x
+         ax = alpha*x + gamma_i*time
+
          c  = cos(ax)
          s  = sin(ax)
          eg = lglel(e)
 
          call get_exyz(ex,ey,ez,eg,nelx,nely,nelz)
 
+         ! Initiallize velocity
          if (ey.le.10) then
+c        if (ey.le.14) then
            ub(i,j,1,e) = epsamp*(ur(j,ey)*c - ui(j,ey)*s)
            vb(i,j,1,e) = epsamp*(vr(j,ey)*c - vi(j,ey)*s)
            ubase = 1.0-y*y
            ub(i,j,1,e) = ub(i,j,1,e) + ubase
          elseif (ey.le.20) then
-           ub(i,j,1,e) = epsamp*(ur(m, 1)*c - ui(m, 1)*s)
-           vb(i,j,1,e) = epsamp*(vr(m, 1)*c - vi(m, 1)*s)
            ub(i,j,1,e)=epsamp*(ur(ny1+1-j,21-ey)*c
      $                   -ui(ny1+1-j,21-ey)*s)
            vb(i,j,1,e)=epsamp*(vr(ny1+1-j,21-ey)*c
@@ -828,9 +572,22 @@ c---------------------------------------------------------------------
            ubase = 1.0
            ub(i,j,1,e) = ub(i,j,1,e) + ubase
          else
-           vb(i,j,1,e) = 0.0
            ub(i,j,1,e) = 1.0
+           vb(i,j,1,e) = 0.0
          endif
+
+
+
+         ! Initiallize levelset
+         disp = fsr*cos(ax) - fsi*sin(ax)
+         h_local = epsamp*disp
+
+         temp = h_local - y
+         if ((k.eq.1).or.(k.eq.3)) then
+           temp = heaviside(i,j,1,e,temp,0.0)
+         endif
+         temp_ic(i,j,1,e,k) = temp
+      enddo
       enddo
       enddo
       enddo

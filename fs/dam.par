@@ -2,30 +2,33 @@
 # nek parameter file
 #
 [GENERAL]
-#startFrom = "c1.f00000"
-#stopAt = numSteps
-stopAt = endTime
+#startFrom = c4.f00000
+stopAt = numSteps
+#stopAt = endTime
 #numSteps = 500000 #12000 #1000 #16000 #4000 #400 #400 #200000
-endTime = 200 #10e-4
-#numSteps = 50
+#endTime = 10 #10e-4
+numSteps = 30
 
-dt = 1e-03
+dt = 1e-04
 timeStepper = bdf2 #With bdf2 SF does not work well
 variabledt = yes
 targetCFL = 0.1
 extrapolation = OIFS
 
-writeControl = runTime
-writeInterval = 1e-2
-# writeInterval = 1
+#writeControl = runTime
+#writeInterval = 1e-0
+writeInterval = 1
 
-userParam01 = 0.01     #Freq of TLSR
-userParam02 = 0.001      #Freq of CLSR
+userParam01 = 1e-4     #Freq of TLSR
+userParam02 = 1e-5      #Freq of CLSR
 userParam03 = 2    #Pressure extrapolation order
 
-filtering = hpfrt
-filterModes = 2
-filterWeight = 10.0
+#filtering = hpfrt
+#filterModes = 2
+#filterWeight = 10.0
+#filtering = explicit
+#filterModes = 3
+#filterWeight = 0.05
 
 [PROBLEMTYPE]
 equation = lowMachNS
@@ -48,22 +51,26 @@ rhocp = 1.
 conductivity = 1.
 residualTol = 1e-8
 regularization = svv
+#residualProj = yes
 
 [SCALAR01] #tls field
 density = 1.0
 diffusivity = 1e-8 
 residualTol = 1e-8
 regularization = svv
+#residualProj = yes
 
 [SCALAR02] #cls re-distanacing
 density = 1.0
 diffusivity = 1e-8 
 residualTol = 1e-8
 regularization = svv
+#residualProj = yes
 
 [SCALAR03] #tls re-distancing field
 density = 1.0
 diffusivity = 1e-8 
 residualTol = 1e-8
 regularization = svv
+#residualProj = yes
 

@@ -7,7 +7,7 @@ stopAt = numSteps
 #stopAt = endTime
 #numSteps = 500000 #12000 #1000 #16000 #4000 #400 #400 #200000
 #endTime = 10 #10e-4
-numSteps = 30
+numSteps = 50
 
 dt = 1e-04
 timeStepper = bdf2 #With bdf2 SF does not work well
@@ -19,30 +19,30 @@ extrapolation = OIFS
 #writeInterval = 1e-0
 writeInterval = 1
 
-userParam01 = 1e-4     #Freq of TLSR
-userParam02 = 1e-5      #Freq of CLSR
+userParam01 = 1e-5     #Freq of TLSR
+userParam02 = 1e-6      #Freq of CLSR
 userParam03 = 2    #Pressure extrapolation order
 
 #filtering = hpfrt
 #filterModes = 2
 #filterWeight = 10.0
-#filtering = explicit
-#filterModes = 3
-#filterWeight = 0.05
+filtering = explicit
+filterModes = 3
+filterWeight = 0.05
 
 [PROBLEMTYPE]
-equation = lowMachNS
+equation = incompNS
 variableProperties = yes
 stressFormulation = yes
 
 [PRESSURE]
-residualTol = 1e-8
+residualTol = 1e-10
 residualProj = yes
 preconditioner = semg_amg_hypre
 
 [VELOCITY]
 #residualProj = yes
-residualTol = 1e-8
+residualTol = 1e-12
 density = 1
 viscosity = -1.0 #dummy
 

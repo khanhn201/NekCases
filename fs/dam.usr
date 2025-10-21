@@ -19,7 +19,6 @@ c-----------------------------------------------------------------------
 
       real rhoratio, muratio
       real udim, charl, rhol, mul, gdim, gamm
-      real nul, nug
       real rhog,mug
       real psi
       integer icalld
@@ -36,29 +35,17 @@ c-----------------------------------------------------------------------
       charl = 0.05715
       gdim = 9.81
       rhol = 1000.0
-      rhog = 10.0
+      rhog = 1.2e1
 
       mul = 1e-3
-      mug = 1.8e-5 !/5.0
-      nul = mul/rhol
-      nug = mug/rhog
+      mug = 1.8e-4 !/5.0
+
       udim = 1.0
 
-      Re = rhol*udim*charl/mul
-      Fr = udim**2.0/(gdim*charl)
-      gamm = 0.06
-      We = charl*rhol*udim**2.0/gamm
-
-c     Re = 3.e4
-c     Fr = sqrt(0.091827364554637)
-c     We = 0.011269332539972
-
-      Re = 11000.0
-      Fr = 4.0
-      We = 1820.0
       Re = 3.e4
       Pg = 1.1e-4
       We = 1.0/0.011269332539972
+c     We = 10.0/0.011269332539972
 
 
 
@@ -105,7 +92,7 @@ c-----------------------------------------------------------------------
       real sfx,sfy,sfz
 
       real svvx,svvy,svvz
-      real theta_g, psi
+      real theta_g, psi, fgrav, facc
 
       e = gllel(eg)
 
@@ -123,13 +110,23 @@ c-----------------------------------------------------------------------
       call svv_fluid(ix,iy,iz,e,svvx,svvy,svvz)
 
       psi = t(ix,iy,iz,e,ifld_cls-1)
-      ffx = sfx + 2.0/Re + svvx
-c     ffx = sfx + svvx
-      ffy = sfy -(Re*Pg)**(-2)  + svvy
-      ffz = sfz + svvz
-      ffx = 2.0/Re
-      ffy = -(Re*Pg)**(-2)
-      ffz = 0.0
+
+      fgrav = vtrans(ix,iy,iz,e,1)*((Re*Pg)**(-2))
+      facc = 2.0*vtrans(ix,iy,iz,e,1)/Re
+
+      ffx = 0.0 
+      ffy = 0.0 
+      ffz = 0.0 
+c     ffx = sfx + svvx + facc/vtrans(ix,iy,iz,e,1)
+c     ffy = sfy + svvy - fgrav/vtrans(ix,iy,iz,e,1)
+c     ffz = sfz + svvz
+
+      abfx(ix,iy,iz,e) = sfx + svvx + facc
+      abfy(ix,iy,iz,e) = sfy + svvy - fgrav
+      abfz(ix,iy,iz,e) = sfz + svvz
+c     abfx(ix,iy,iz,e) = 0.0
+c     abfy(ix,iy,iz,e) = 0.0
+c     abfz(ix,iy,iz,e) = 0.0
 
       return
       end
@@ -161,9 +158,6 @@ c-----------------------------------------------------------------------
       include 'TOTAL'
       include 'NEKUSE'
 
-      common /mypres/ pres(lx1,ly1,lz1,lelt)
-      real pres
-
       common /myvps/ uvw(lx1,ly1,lz1,lelt,3), myps(lx1,ly1,lz1,lelt,4)
       real uvw, myps
 
@@ -171,7 +165,6 @@ c-----------------------------------------------------------------------
       real yplus
       real xx,yy
       real y_height, v_local
-      real blasius
 
       e = gllel(eg)
 
@@ -280,7 +273,8 @@ c-----------------------------------------------------------------------
       real visc
 
       real vol, vy2, vy20, gr, gl, ge, vy2r, vy2l,timestart
-      real glsc3
+      real pr_avg
+      real glsc3, glsc2
 
       save vy20, vy2l, timestart
 
@@ -297,29 +291,45 @@ c-----------------------------------------------------------------------
       common /fsparam/ eps,alpha,gamma_r,gamma_i
       real gamma_r,gamma_i, eps, alpha
 
+      common /fspres/ pres_ic(lx1,ly1,lz1,lelt)
+      real pres_ic
+
+
       ntot = lx1*ly1*lz1*nelv
 
-      ! Initialize the first 5 steps with the same IC
-      if (istep.lt.10) then
-        call gen_pert_ic
-        call opcopy(vx,vy,vz,ub,vb,vb)
-        call copy(t(1,1,1,1,1),temp_ic(1,1,1,1,1),ntot)
-c       call copy(t(1,1,1,1,2),temp_ic(1,1,1,1,2),ntot)
-        call copy(t(1,1,1,1,3),temp_ic(1,1,1,1,1),ntot)
-c       call copy(t(1,1,1,1,4),temp_ic(1,1,1,1,2),ntot)
-      endif
 
 
       pord = uparam(3)
       call extrappr(prext,pr,prlag(1,1,1,1,1),prlag(1,1,1,1,2),pord)
-      ncut = lx1-1
-      if(pord.ne.1) call cut_off_filter(prext,ncut,1)
+c     ncut = lx1-1
+c     if(pord.ne.1) call cut_off_filter(prext,ncut,1)
 
       ntlsr = uparam(1) !freq of TLS re-distancing
       nclsr = uparam(2) !freq of CLS re-distancing
 
       call LS_default_driver(ntlsr,nclsr)
 
+      ! Initialize the first 5 steps with the same IC
+c     if (istep.lt.10) then
+c       call gen_pert_ic
+c       if (istep.lt.1) then
+c         call copy(pr,pres_ic,ntot)
+c         vol = glsum(bm1,ntot) ! recenter pressure
+c         pr_avg = glsc2(bm1,pr,ntot)/vol
+c         call cadd(pr, -pr_avg, ntot)
+c       endif
+
+c       if (istep.lt.10) then
+c         call copy(t(1,1,1,1,1),temp_ic(1,1,1,1,1),ntot)
+c         call copy(t(1,1,1,1,3),temp_ic(1,1,1,1,1),ntot)
+c         do i=1,ntot
+c           if ((temp_ic(i,1,1,1,1).ge.0.5).or.(istep.lt.10)) then
+c             vx(i,1,1,1) = ub(i,1,1,1)
+c             vy(i,1,1,1) = vb(i,1,1,1)
+c           endif
+c         enddo
+c       endif
+c     endif
       
 
 
@@ -340,13 +350,13 @@ c       call copy(t(1,1,1,1,4),temp_ic(1,1,1,1,2),ntot)
 
       if (vy2.gt.0.0) vy2 = sqrt(vy2)
 
-      if (istep.le.0) then
+      if (istep.le.5) then
          vy20 = vy2
-c        timestart=time
+         timestart=time
       else
          vy2r = vy2/vy20
          vy2l = vy2/vy2l
-         gr = log(vy2r)/time
+         gr = log(vy2r)/(time-timestart)
          gl = log(vy2l)/dt
          ge = abs(gr - gamma_r)/gamma_r
          if (nid.eq.0) write(6,1) istep,time,vol,vy2,vy2r,gr,gl,ge
@@ -367,8 +377,10 @@ c     if(time .ge. fplot_next)then
          call col2(vzz,psifluid,ntot)
 
          fplot_next = fplot_next + fplot
-         call outpost(vxx,vyy,vzz,vtrans,t(1,1,1,1,3),'dif')
+c        call outpost(vxx,vyy,vzz,vtrans,t(1,1,1,1,3),'dif')
 c     endif
+
+
 
       return
       end
@@ -408,6 +420,7 @@ c-----------------------------------------------------------------------
       gamma_i =   -1.177455429168827
       gamma_r =    0.000052447145099
       eps = 1e-4
+c     eps = 0.0
       alpha = 1.0
 
 
@@ -522,24 +535,30 @@ c---------------------------------------------------------------------
       integer ifld_tls,ifld_tlsr
       common /fsarray/ ub(lx1,ly1,lz1,lelt),vb(lx1,ly1,lz1,lelt)
       common /fstemp/ temp_ic(lx1,ly1,lz1,lelv,2)
+      common /fspres/ pres_ic(lx1,ly1,lz1,lelt)
       real ub, vb
-      real temp_ic
+      real temp_ic, pres_ic
 
       common /scrns/ ur(ly1,100),ui(ly1,100),vr(ly1,100),vi(ly1,100)
       common /scruz/ wk(ly1,100)
 
       integer e,eg,ex,ey,ez
+      real blasius
 
       common /fsparam/ eps,alpha,gamma_r,gamma_i
       real gamma_r, eps, epsamp, alpha
       real fsr, fsi
 
+      common /dimen/ Re,We,Fr,Pg
+      real Re, We, Fr, Pg
+
       real temp, heaviside, tempi
+      real ubi, vbi
 
       fsr    =   -0.222195390880021
       fsi    =   -0.777804609119979
 
-      nelx = 40
+      nelx = 60
       nely = 30
       nelz = 1
 
@@ -581,9 +600,18 @@ c---------------------------------------------------------------------
 
          call get_exyz(ex,ey,ez,eg,nelx,nely,nelz)
 
+         ! Initiallize levelset
+         disp = fsr*cos(ax) - fsi*sin(ax)
+         h_local = epsamp*disp
+
+         temp = h_local - y
+         if ((k.eq.1).or.(k.eq.3)) then
+           temp = heaviside(i,j,1,e,temp,0.0)
+         endif
+         temp_ic(i,j,1,e,k) = temp
+
          ! Initiallize velocity
          if (ey.le.10) then
-c        if (ey.le.14) then
            ub(i,j,1,e) = epsamp*(ur(j,ey)*c - ui(j,ey)*s)
            vb(i,j,1,e) = epsamp*(vr(j,ey)*c - vi(j,ey)*s)
            ubase = 1.0-y*y
@@ -596,26 +624,22 @@ c    $                   -vi(ny1+1-j,21-ey)*s)
 c          ubase = 1.0
 c          ub(i,j,1,e) = ub(i,j,1,e) + ubase
          else
-           ub(i,j,1,e) = epsamp*(ur(m,1)*c - ui(m,1)*s)
-           vb(i,j,1,e) = epsamp*(vr(m,1)*c - vi(m,1)*s)
+           ubi = epsamp*(ur(m,1)*c - ui(m,1)*s)
+           vbi = epsamp*(vr(m,1)*c - vi(m,1)*s)
+
+           ub(i,j,1,e) = ubi - blasius(y-h_local, 10.0,ubi)
+           vb(i,j,1,e) = vbi - blasius(y-h_local, 10.0,vbi)
            ubase = 1.0
            ub(i,j,1,e) = ub(i,j,1,e) + ubase
+         endif
 
-c          ub(i,j,1,e) = 1.0
-c          vb(i,j,1,e) = 0.0
+         if ((h_local - y).ge.0.0) then
+            pres_ic(i,j,1,e) = (h_local - y)*(Re*Pg)**(-2)
+         else
+            pres_ic(i,j,1,e) = 0.0
          endif
 
 
-
-         ! Initiallize levelset
-         disp = fsr*cos(ax) - fsi*sin(ax)
-         h_local = epsamp*disp
-
-         temp = h_local - y
-         if ((k.eq.1).or.(k.eq.3)) then
-           temp = heaviside(i,j,1,e,temp,0.0)
-         endif
-         temp_ic(i,j,1,e,k) = temp
       enddo
       enddo
       enddo
@@ -623,4 +647,95 @@ c          vb(i,j,1,e) = 0.0
 
       return
       end
-
+c-----------------------------------------------------------------------
+      subroutine spline(x,y,n,y2)
+      parameter (nmax=100)
+      dimension x(n),y(n),y2(n),u(nmax)
+      if (n.gt.nmax) then
+         write(6,11) n,nmax
+   11    FORMAT(2X,'ERROR:  Attempt to fit a spline with',I5
+     $            ,'greater than',I4,' points.'
+     $       ,/,2X,'Recompile routine SPLINE.')
+         call exitti('routine spline fail$',n)
+      endif
+      y2(1)=0.0
+      u(1) =0.0
+      do 10 i=2,n-1
+         ir=i+1
+         il=i-1
+         sig=(x(i)-x(il))/(x(ir)-x(il))
+         p=sig*y2(il)+2.
+         y2(i)=(sig-1.)/p
+         u(i)= ( 6.*
+     $     ( (y(ir)-y(i))/(x(ir)-x(i))-(y(i)-y(il))/ (x(i)-x(il) ) )
+     $            / (x(ir)-x(il))
+     $    - sig*u(il) )/p
+   10 continue
+      qn=0.0
+      un=0.0
+      y2(n)=(un-qn*u(n-1))/(qn*y2(n-1)+1.)
+      do 20 k=n-1,1,-1
+         y2(k)=y2(k)*y2(k+1)+u(k)
+   20 continue
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine splint(xa,ya,y2a,n,x,y)
+c     p. 88-89, numerical recipes
+      real xa(n),ya(n),y2a(n)
+      klo=1
+      khi=n
+    1   if ((khi-klo).gt.1) then
+           k=(khi+klo)/2
+           if (xa(k).gt.x) then
+              khi=k
+           else
+              klo=k
+           endif
+           goto 1
+        endif
+      h=xa(khi)-xa(klo)
+      if (h.eq.0) then
+         write(6,*) xa(khi), 'splint failure',khi
+         return
+      endif
+      a=(xa(khi)-x)/h
+      b=(x-xa(klo))/h
+      y=a*ya(klo)+b*ya(khi)+
+     $  ((a**3-a)*y2a(klo)+(b**3-b)*y2a(khi))*(h**2)/6.
+      return
+      end
+c-----------------------------------------------------------------------
+      function blasius(y,delta,u)
+c     Return the velocity at a given y value for specified delta and U.
+      integer icalld
+      save    icalld
+      data    icalld /0/
+      dimension u0(45),y0(45),work(45)
+      save      u0    ,y0    ,work
+      data      u0 / 0.00000 , 0.06641 , 0.13277 , 0.19894 , 0.26471
+     $             , 0.32979 , 0.39378 , 0.45627 , 0.51676 , 0.57477
+     $             , 0.62977 , 0.68132 , 0.72899 , 0.77246 , 0.81152
+     $             , 0.84605 , 0.87609 , 0.90177 , 0.92333 , 0.94112
+     $             , 0.95552 , 0.96696 , 0.97587 , 0.98269 , 0.98779
+     $             , 0.99155 , 0.99425 , 0.99616 , 0.99748 , 0.99838
+     $             , 0.99898 , 0.99937 , 0.99961 , 0.99977 , 0.99987
+     $             , 0.99992 , 0.99996 , 0.99998 , 0.99999 , 1.00000
+     $             , 1.00000 , 1.00000 , 1.00000 , 1.00000 , 1.00000 /
+      if (icalld.eq.0) then
+c        Initialize Blasius profile and spline fitting routine.
+         icalld=1
+         do 10 i=1,45
+            y0(i)=float(i-1)/5.0
+   10    continue
+         call spline(y0,u0,45,work)
+      endif
+      eta=5.0*y/delta
+      if (eta.gt.8.5) then
+         blasius=u
+      else
+         call splint(y0,u0,work,45,eta,vel)
+         blasius=vel*u
+      endif
+      return
+      end

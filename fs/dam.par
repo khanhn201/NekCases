@@ -2,14 +2,14 @@
 # nek parameter file
 #
 [GENERAL]
-startFrom = c5.f00000 int
+#startFrom = c5.f00000 int
 stopAt = numSteps
 #stopAt = endTime
 #numSteps = 500000 #12000 #1000 #16000 #4000 #400 #400 #200000
 #endTime = 10 #10e-4
 numSteps = 1000
 
-dt = 5e-5
+dt = 5e-6
 timeStepper = bdf2 #With bdf2 SF does not work well
 variabledt = yes
 targetCFL = 0.1
@@ -19,8 +19,8 @@ extrapolation = OIFS
 #writeInterval = 1e-0
 writeInterval = 10
 
-userParam01 = 5e-3     #Freq of TLSR
-userParam02 = 5e-4      #Freq of CLSR
+userParam01 = 5e-4     #Freq of TLSR
+userParam02 = 5e-5      #Freq of CLSR
 userParam03 = 2    #Pressure extrapolation order
 
 #filtering = hpfrt

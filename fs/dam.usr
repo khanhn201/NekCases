@@ -20,7 +20,7 @@ c-----------------------------------------------------------------------
       real rhoratio, muratio
       real udim, charl, rhol, mul, gdim, gamm
       real rhog,mug
-      real psi
+      real psi, evm_getvisc
       integer icalld
       save icalld
       data icalld /0/
@@ -35,10 +35,12 @@ c-----------------------------------------------------------------------
       charl = 0.05715
       gdim = 9.81
       rhol = 1000.0
-      rhog = 1.2e1
+      rhog = 1.2
+c     rhog = 1000.0
 
       mul = 1e-3
-      mug = 1.8e-4 !/5.0
+      mug = 1.8e-5 !/5.0
+c     mug = 1e-3 !/5.0
 
       udim = 1.0
 
@@ -55,6 +57,7 @@ c     We = 10.0/0.011269332539972
         psi = min(1.0,psi)
         utrans = ((1.0-psi)*rhog + psi*rhol)/rhol
         udiff = ((1.0-psi)*mug + psi*mul)/mul/Re
+c       udiff=udiff+evm_getvisc(ix,iy,iz,e)
 
         if(istep.le.2)then
           vtrans0(ix,iy,iz,e) = utrans
@@ -310,26 +313,26 @@ c     if(pord.ne.1) call cut_off_filter(prext,ncut,1)
       call LS_default_driver(ntlsr,nclsr)
 
       ! Initialize the first 5 steps with the same IC
-c     if (istep.lt.10) then
-c       call gen_pert_ic
-c       if (istep.lt.1) then
-c         call copy(pr,pres_ic,ntot)
-c         vol = glsum(bm1,ntot) ! recenter pressure
-c         pr_avg = glsc2(bm1,pr,ntot)/vol
-c         call cadd(pr, -pr_avg, ntot)
-c       endif
+      if (istep.lt.1) then
+        call gen_pert_ic
+        if (istep.lt.1) then
+          call copy(pr,pres_ic,ntot)
+          vol = glsum(bm1,ntot) ! recenter pressure
+          pr_avg = glsc2(bm1,pr,ntot)/vol
+          call cadd(pr, -pr_avg, ntot)
+        endif
 
-c       if (istep.lt.10) then
-c         call copy(t(1,1,1,1,1),temp_ic(1,1,1,1,1),ntot)
-c         call copy(t(1,1,1,1,3),temp_ic(1,1,1,1,1),ntot)
-c         do i=1,ntot
-c           if ((temp_ic(i,1,1,1,1).ge.0.5).or.(istep.lt.10)) then
-c             vx(i,1,1,1) = ub(i,1,1,1)
-c             vy(i,1,1,1) = vb(i,1,1,1)
-c           endif
-c         enddo
-c       endif
-c     endif
+        if (istep.lt.20) then
+          call copy(t(1,1,1,1,1),temp_ic(1,1,1,1,1),ntot)
+          call copy(t(1,1,1,1,3),temp_ic(1,1,1,1,1),ntot)
+          do i=1,ntot
+            if ((temp_ic(i,1,1,1,1).ge.0.5).or.(istep.lt.10)) then
+              vx(i,1,1,1) = ub(i,1,1,1)
+              vy(i,1,1,1) = vb(i,1,1,1)
+            endif
+          enddo
+        endif
+      endif
       
 
 
@@ -369,6 +372,7 @@ c     endif
 
       fplot = 0.1
 c     if(time .ge. fplot_next)then
+      if(mod(istep, 10).eq.0)then
          call copy(vxx,vx,ntot)
          call copy(vyy,vy,ntot)
          call copy(vzz,vz,ntot)
@@ -377,7 +381,9 @@ c     if(time .ge. fplot_next)then
          call col2(vzz,psifluid,ntot)
 
          fplot_next = fplot_next + fplot
-c        call outpost(vxx,vyy,vzz,vtrans,t(1,1,1,1,3),'dif')
+         call outpost(vxx,vyy,vzz,visc,t(1,1,1,1,1),'dif')
+
+      endif
 c     endif
 
 
@@ -737,5 +743,196 @@ c        Initialize Blasius profile and spline fitting routine.
          call splint(y0,u0,work,45,eta,vel)
          blasius=vel*u
       endif
+      return
+      end
+c-----------------------------------------------------------------------
+      real function evm_getvisc(i,j,k,e)
+      include 'SIZE'
+      include 'TOTAL'
+      real tlast
+      data tlast   /-1./
+      save tlast
+      integer e, ifld
+      common /myvisc/ visc(lx1,ly1,lz1,lelt)
+
+
+      if (time.ne.tlast) call evm_setvisc
+      tlast = time
+
+      evm_getvisc = visc(i,j,k,e)
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine evm_g_filter1(u,diag,ifld,ibuild)
+c
+c     Generalized filter: F(u) with F = J^T D J, where D=diag(diag)
+c
+      include 'SIZE'
+      include 'TOTAL'
+
+      real u(1),diag(1)
+
+      parameter (lxx=lx1*lx1,lxyz=lx1*ly1*lz1)
+      common /cgflt1/ f(lxx),wk1(lxyz),wk2(lxyz),wk3(lxyz)
+
+      ifldt  = ifield
+      ifield = ifld
+
+      if (ibuild.eq.0) call build_filter(f,diag,nx1)
+      ibuild=1
+
+      call filterq(u,f,nx1,nz1,wk1,wk2,wk3,if3d,umax)
+
+      ifield = ifldt
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine evm_setvisc
+      include 'SIZE'
+      include 'TOTAL'
+
+      parameter (lt=lx1*ly1*lz1*lelt)
+      real vmag(lt)
+      common /myvisc/ visc(lx1,ly1,lz1,lelt)
+      common /scruz/  h0(lt),uf(lt),r(lt),diag(lx1)
+      real  h0, uf, r, diag
+
+      common /screvm/ h1(lt), h2(lt), dtmp(lt)
+      real  h1, h2, dtmp
+
+      integer ibuild,e
+      save    ibuild
+      data    ibuild / 0 /
+
+      real    visum 
+      save    visum 
+      data    visum  / 0. /
+      integer ncut, nc
+
+      integer trantyp ! changes transfer function
+      integer ncuttyp ! changes cut-off modes number
+
+      ncuttyp = 1 ! constant 3 modes
+      ncuttyp = 2 ! 1/4 of lx1
+      ncuttyp = 3 ! 1/5 of lx1
+      if(ncuttyp.eq.1) then
+        nc = lx1-3
+        if(lx1.le.3) then
+          write(6,*) 'evm: lx1=',lx1,'<=3, set nc=1'
+          nc = 1
+        endif
+      elseif(ncuttyp.eq.2) then
+        nc   = int((3./4.)*lx1)
+      elseif(ncuttyp.eq.3) then
+        nc   = int((4./5.)*lx1)
+      endif
+      ncut = lx1 - nc
+
+      n = nx1*ny1*nz1*nelv
+      dinv=1./ldim
+      do i=1,n
+         h0(i)=bm1(i,1,1,1)**dinv ! Local length scale
+         v2   =vx(i,1,1,1)**2+vy(i,1,1,1)**2+vz(i,1,1,1)**2
+         v    =sqrt(v2)
+         visc(i,1,1,1)=0.5*v*h0(i)  ! This is the max possible viscosity
+         vmag(i) = v
+      enddo
+
+      ! set up diffusion matrix
+      if(ifield.eq.1) then ! vel
+        base_vsc = param(2)
+      elseif(ifield.eq.2)  then ! temp
+        base_vsc = param(8)
+      endif
+
+      call cfill(h1,base_vsc,n)
+      call rzero(h2,n)
+
+      nxyz=nx1*ny1*nz1
+      call copy     (uf,vmag,n)
+
+      alpha=0.5 ! works
+      alpha=1.0 ! works
+
+      call rone(diag,nx1)
+      trantyp = 2 ! quadratic
+      trantyp = 1 ! linear
+
+      if(trantyp.eq.1) then    ! linear dropdown
+        do k=1,ncut
+          j = nx1-k + 1
+          w = alpha*(float(ncut+1-k)/float(ncut))
+          diag(j) = 1.-w
+        enddo
+      elseif(trantyp.eq.2) then ! quadratic rolldown
+        do k=1,ncut
+          j = nx1-k + 1
+          w = alpha*((float(ncut+1-k)/float(ncut))**2)
+          diag(j) = 1.-w
+        enddo
+      endif
+
+      ifld=1
+      call evm_g_filter1(uf,diag,ifld,ibuild)
+      call sub2         (uf,vmag,n)
+      vismx = glamax(uf,n)
+      vismn = glamin(uf,n)
+c     call convop       (r,uf)              ! Residual
+      call convect_new   (r,uf, .false., vx, vy, vz, .false.)              ! Residual
+
+      ! add in diffusion
+c     imesh = 1   ! do these matter?
+c     isd = 1     ! do these matter?
+c     call axhelm (dtmp,uf,h1,h2,imesh,isd)
+c     call dssum  (dtmp,nx1,ny1,nz1)
+c     call invcol2(dtmp,bm1,n)
+c     call sub2   (r, dtmp, n)
+
+c     do e=1,nelv
+c        vmax=vlmax(visc(1,1,1,e),nxyz)
+c        call cfill(visc(1,1,1,e),vmax,nxyz)
+c     enddo
+
+      ! was missing a rescaling factor
+      call rone (uf,n)
+      uavg = gl2norm(vmag, n) / gl2norm(uf, n)
+      call cmult(uf,uavg,n)
+      call sub2 (uf, vmag, n)
+      uinf = glamax (uf, n)
+
+      icapcnt = 0
+      do i=1,n        ! evaluate viscosity
+        const    = .5 ! Tuning factor
+        const    = 1. ! Tuning factor
+        const    = 2. ! Tuning factor
+        ent_visc = const*abs(r(i))*(h0(i)**2) / uinf
+        cap = visc(i,1,1,1)
+        visc(i,1,1,1)  = min(visc(i,1,1,1),ent_visc)
+        if(abs(visc(i,1,1,1)-cap).le.1e-8) icapcnt = icapcnt + 1
+      enddo
+      icapsum = iglsum(icapcnt,1)
+      nsum = iglsum(n,1)
+
+      do e=1,nelv
+        vmax=vlmax(visc(1,1,1,e),nxyz)
+        call cfill(visc(1,1,1,e),vmax,nxyz)
+      enddo
+c     call rzero(visc,n) ! hard hack to see how nek runs
+      vismx = glamax(visc,n)
+      vismn = glamin(visc,n)
+      visav = glsc2(visc,bm1,n)/volvm1
+
+      visum = visum + vlsc2(visc,bm1,n)*dt
+      vsum  = glsum(visum,1)
+
+      if(nio.eq.0 .and. istep.le.1) write(6,*) 'Modes:',ncut
+     $            ,', transfer type(1-linear,2-quad)',trantyp
+     $            ,', alpha=',alpha
+
+      if(nio.eq.0)write(6,10) istep,vismx,vismn,visav,icapsum,nsum,vsum
+  10  format(i6,1p3e12.5,2i9,1p1e12.5' evm')
+
       return
       end

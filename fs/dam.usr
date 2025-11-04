@@ -35,19 +35,16 @@ c-----------------------------------------------------------------------
       charl = 0.05715
       gdim = 9.81
       rhol = 1000.0
-      rhog = 1.2
-c     rhog = 1000.0
+      rhog = 1.2e-1
 
       mul = 1e-3
-      mug = 1.8e-5 !/5.0
-c     mug = 1e-3 !/5.0
+      mug = 1e-4 !/5.0
 
       udim = 1.0
 
       Re = 3.e4
       Pg = 1.1e-4
       We = 1.0/0.011269332539972
-c     We = 10.0/0.011269332539972
 
 
 
@@ -117,16 +114,21 @@ c-----------------------------------------------------------------------
       fgrav = vtrans(ix,iy,iz,e,1)*((Re*Pg)**(-2))
       facc = 2.0*vtrans(ix,iy,iz,e,1)/Re
 
-      ffx = 0.0 
-      ffy = 0.0 
-      ffz = 0.0 
+      ! implicit
+      ffx = svvx 
+      ffy = svvy 
+      ffz = svvz
+      abfx(ix,iy,iz,e) = sfx + facc
+      abfy(ix,iy,iz,e) = sfy - fgrav
+      abfz(ix,iy,iz,e) = sfz
+
+      ! explicit
+c     sfx = sfx/vtrans(ix,iy,iz,e,1)
+c     sfy = sfy/vtrans(ix,iy,iz,e,1)
+c     sfz = sfz/vtrans(ix,iy,iz,e,1)
 c     ffx = sfx + svvx + facc/vtrans(ix,iy,iz,e,1)
 c     ffy = sfy + svvy - fgrav/vtrans(ix,iy,iz,e,1)
 c     ffz = sfz + svvz
-
-      abfx(ix,iy,iz,e) = sfx + svvx + facc
-      abfy(ix,iy,iz,e) = sfy + svvy - fgrav
-      abfz(ix,iy,iz,e) = sfz + svvz
 c     abfx(ix,iy,iz,e) = 0.0
 c     abfy(ix,iy,iz,e) = 0.0
 c     abfz(ix,iy,iz,e) = 0.0
@@ -174,7 +176,7 @@ c-----------------------------------------------------------------------
       xx = xm1(ix,iy,iz,e)
       yy = ym1(ix,iy,iz,e)
 
-      ux   = 0.0
+      ux   = 1.0
       uy   = 0.0
       uz   = 0.0
 
@@ -304,8 +306,6 @@ c-----------------------------------------------------------------------
 
       pord = uparam(3)
       call extrappr(prext,pr,prlag(1,1,1,1,1),prlag(1,1,1,1,2),pord)
-c     ncut = lx1-1
-c     if(pord.ne.1) call cut_off_filter(prext,ncut,1)
 
       ntlsr = uparam(1) !freq of TLS re-distancing
       nclsr = uparam(2) !freq of CLS re-distancing
@@ -313,39 +313,43 @@ c     if(pord.ne.1) call cut_off_filter(prext,ncut,1)
       call LS_default_driver(ntlsr,nclsr)
 
       ! Initialize the first 5 steps with the same IC
-      if (istep.lt.1) then
-        call gen_pert_ic
-        if (istep.lt.1) then
-          call copy(pr,pres_ic,ntot)
-          vol = glsum(bm1,ntot) ! recenter pressure
-          pr_avg = glsc2(bm1,pr,ntot)/vol
-          call cadd(pr, -pr_avg, ntot)
-        endif
+c     if (istep.lt.5) then
+c       call gen_pert_ic
+c       if (istep.lt.1) then
+c         call copy(pr,pres_ic,ntot)
+c         vol = glsum(bm1,ntot) ! recenter pressure
+c         pr_avg = glsc2(bm1,pr,ntot)/vol
+c         call cadd(pr, -pr_avg, ntot)
+c       endif
 
-        if (istep.lt.20) then
-          call copy(t(1,1,1,1,1),temp_ic(1,1,1,1,1),ntot)
-          call copy(t(1,1,1,1,3),temp_ic(1,1,1,1,1),ntot)
-          do i=1,ntot
-            if ((temp_ic(i,1,1,1,1).ge.0.5).or.(istep.lt.10)) then
-              vx(i,1,1,1) = ub(i,1,1,1)
-              vy(i,1,1,1) = vb(i,1,1,1)
-            endif
-          enddo
-        endif
-      endif
-      
+c       if (istep.lt.50) then
+c         call copy(t(1,1,1,1,1),temp_ic(1,1,1,1,1),ntot)
+c         call copy(t(1,1,1,1,3),temp_ic(1,1,1,1,1),ntot)
+c         do i=1,ntot
+c           if ((temp_ic(i,1,1,1,1).ge.0.5).or.(istep.lt.0)) then
+c             vx(i,1,1,1) = ub(i,1,1,1)
+c             vy(i,1,1,1) = vb(i,1,1,1)
+c           endif
+c         enddo
+c       endif
+c     endif
+
 
 
       ! Calculate growth rate
       call copy(psifluid,t,ntot)
       do i=1,ntot
-          if(psifluid(i,1,1,1).ge.0.5)then
-            psifluid(i,1,1,1) = (psifluid(i,1,1,1)-0.5)*2.0
-            psifluid(i,1,1,1) = 1.0
+c         if(psifluid(i,1,1,1).ge.0.5)then
+c           psifluid(i,1,1,1) = (psifluid(i,1,1,1)-0.5)*2.0
+c           psifluid(i,1,1,1) = 1.0
+c         else
+c           psifluid(i,1,1,1) = 0.0
+c         endif
+          if(ym1(i,1,1,1).lt.-0.1)then
+          psifluid(i,1,1,1) = 1.0
           else
-            psifluid(i,1,1,1) = 0.0
+          psifluid(i,1,1,1) = 0.0
           endif
-          psifluid(i,1,1,1) = psifluid(i,1,1,1)
       enddo
       call col3(bfluid, bm1, psifluid, ntot)
       vol = glsum(bfluid,ntot)
@@ -353,7 +357,7 @@ c     if(pord.ne.1) call cut_off_filter(prext,ncut,1)
 
       if (vy2.gt.0.0) vy2 = sqrt(vy2)
 
-      if (istep.le.5) then
+      if (istep.lt.50) then
          vy20 = vy2
          timestart=time
       else
@@ -372,7 +376,7 @@ c     if(pord.ne.1) call cut_off_filter(prext,ncut,1)
 
       fplot = 0.1
 c     if(time .ge. fplot_next)then
-      if(mod(istep, 10).eq.0)then
+c     if(mod(istep, 10).eq.0)then
          call copy(vxx,vx,ntot)
          call copy(vyy,vy,ntot)
          call copy(vzz,vz,ntot)
@@ -381,9 +385,9 @@ c     if(time .ge. fplot_next)then
          call col2(vzz,psifluid,ntot)
 
          fplot_next = fplot_next + fplot
-         call outpost(vxx,vyy,vzz,visc,t(1,1,1,1,1),'dif')
+c        call outpost(vxx,vyy,vzz,visc,t(1,1,1,1,1),'dif')
 
-      endif
+c     endif
 c     endif
 
 
@@ -448,6 +452,7 @@ c     eps = 0.0
          do iface = 1, 2*ldim
             if (cbc(iface,iel,1) .eq. 'SYM') then
                cbc(iface,iel,1) = 'W  '
+               cbc(iface,iel,1) = 'v  '
             endif
          enddo
       enddo
@@ -475,7 +480,8 @@ c-----------------------------------------------------------------------
       integer ifdebug, ifixCLSbdry
       real farfield
 
-      eps = 1.5/(lx1-1.0)
+      eps = 1.5/(lx1-1.0)*0.1/(0.1466666)
+      eps = 7.0/(lx1-1.0)
       ifdebug = 0
       ifixCLSbdry = 0
       farfield = 0.0
@@ -491,9 +497,10 @@ c     parameters.
       !fluid
       svv_c0(1) = 1.0
       svvcut(1) = (lx1-1.0)/2.0
+c     svvcut(1) = (lx1-1.0)/3.0
 
       ! svv_c0(ifld_cls) = 1.0                 !ifld_cls
-      ! svvcut(ifld_cls) = (lx1-1.0)/2.0-1.0
+c     svvcut(ifld_cls) = (lx1-1.0)/2.0-1.0
       ! svv_k0(1) = 1.5
       ! svv_k1(1) = 1.5
       ! ifnlsvv(1) = .true.
@@ -506,6 +513,7 @@ c     parameters.
 c     scalar 2      
       ! svv_c0(ifld_tls) = 1.0                  !ifld_tls
       ! svvcut(ifld_tls) = (lx1-1.0)/2.0-1.0
+c     svvcut(ifld_tls) = (lx1-1.0)/4.0-1.0
       ! svv_k0(2) = 1.5
       ! svv_k1(2) = 1.5
       ! ifnlsvv(2) = .false.
@@ -514,6 +522,8 @@ c     scalar 2
 c     scalar 3      
       svv_c0(ifld_clsr) = 1.0                  !ifld_clsr
       svvcut(ifld_clsr) = (lx1-1.0)/2.0
+c     svvcut(ifld_clsr) = (lx1-1.0)/3.0
+c     svvcut(ifld_clsr) = (lx1-1.0)/1.5
       ! svv_k0(3) = 1.5
       ! svv_k1(3) = 1.5
       ! ifnlsvv(3) = .false.
@@ -522,6 +532,7 @@ c     scalar 3
 c     scalar 3      
       svv_c0(ifld_tlsr) = 2.0                  !ifld_tlsr
       svvcut(ifld_tlsr) = (lx1-1.0)/3.0
+c     svvcut(ifld_tlsr) = (lx1-1.0)/4.0
       ! svv_k0(4) = 1.5
       ! svv_k1(4) = 1.5
       ! ifnlsvv(4) = .false.
@@ -565,6 +576,7 @@ c---------------------------------------------------------------------
       fsi    =   -0.777804609119979
 
       nelx = 60
+c     nelx = 45
       nely = 30
       nelz = 1
 
@@ -617,24 +629,20 @@ c---------------------------------------------------------------------
          temp_ic(i,j,1,e,k) = temp
 
          ! Initiallize velocity
-         if (ey.le.10) then
+c        if ((ey.le.10).and.(temp.ge.0.0)) then
+         if ((ey.le.10)) then
            ub(i,j,1,e) = epsamp*(ur(j,ey)*c - ui(j,ey)*s)
            vb(i,j,1,e) = epsamp*(vr(j,ey)*c - vi(j,ey)*s)
            ubase = 1.0-y*y
            ub(i,j,1,e) = ub(i,j,1,e) + ubase
-c        elseif (ey.le.20) then
-c          ub(i,j,1,e)=epsamp*(ur(ny1+1-j,21-ey)*c
-c    $                   -ui(ny1+1-j,21-ey)*s)
-c          vb(i,j,1,e)=epsamp*(vr(ny1+1-j,21-ey)*c
-c    $                   -vi(ny1+1-j,21-ey)*s)
-c          ubase = 1.0
-c          ub(i,j,1,e) = ub(i,j,1,e) + ubase
          else
            ubi = epsamp*(ur(m,1)*c - ui(m,1)*s)
            vbi = epsamp*(vr(m,1)*c - vi(m,1)*s)
+c          ubi = 0.0
+c          vbi = 0.0
 
-           ub(i,j,1,e) = ubi - blasius(y-h_local, 10.0,ubi)
-           vb(i,j,1,e) = vbi - blasius(y-h_local, 10.0,vbi)
+           ub(i,j,1,e) = ubi - blasius(y-h_local, 2.0,ubi)
+           vb(i,j,1,e) = vbi - blasius(y-h_local, 2.0,vbi)
            ubase = 1.0
            ub(i,j,1,e) = ub(i,j,1,e) + ubase
          endif

@@ -54,7 +54,7 @@ C=======================================================================
       do iel=1,nelt
          do iface = 1, nface
             if (cbc(iface,iel,1) .eq. 'v  ') then
-               cbc(iface,iel,1) = 'v'
+               cbc(iface,iel,1) = 'v  '
             endif
             if (cbc(iface,iel,1) .eq. 'int') then
                cbc(iface,iel,1) = 'W  '
@@ -67,11 +67,14 @@ C=======================================================================
       
       do iel=1,nelt
       do ifc=1,2*ndim
-         if (cbc(ifc,iel,1) .eq. 'v  ') then
+         if (cbc(ifc,iel,1) .eq. 'W  ') then
            boundaryID(ifc,iel) = 1
          endif
-         if (cbc(ifc,iel,1) .eq. 'O  ') then
+         if (cbc(ifc,iel,1) .eq. 'v  ') then
            boundaryID(ifc,iel) = 2
+         endif
+         if (cbc(ifc,iel,1) .eq. 'O  ') then
+           boundaryID(ifc,iel) = 3
          endif
       enddo
       enddo

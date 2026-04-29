@@ -19,9 +19,9 @@
 // Boundary conditions
 void udfDirichlet(bcData *bc)
 {
-      bc->uxFluid = -1.0;
+      bc->uxFluid = -1.0/sqrt(2.0);
       bc->uyFluid = 0.0;
-      bc->uzFluid = -1.0;
+      bc->uzFluid = -1.0/sqrt(2.0);
 }
 
 #endif

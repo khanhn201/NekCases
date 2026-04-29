@@ -1,0 +1,69 @@
+c-----------------------------------------------------------------------
+      subroutine userchk
+      include 'SIZE'  
+      include 'TOTAL' 
+      include 'NEKNEK'
+
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine useric (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+
+      n = nx1*ny1*nz1*nelv
+
+      ie = gllel(ieg)
+      ux=0.0
+      uy=0.0
+      uz=-1.0
+      temp=0
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat0
+      include 'SIZE'
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat3
+      include 'SIZE'
+      include 'TOTAL'
+
+      return
+      end
+C=======================================================================
+      subroutine usrdat2
+      include 'SIZE'
+      include 'TOTAL'
+
+
+      parameter (lt=lx1*ly1*lz1*lelt)
+
+
+      integer e,eg,f
+
+      n = lx1*ly1*lz1*nelt
+
+      nface = 2*ldim
+
+      do iel=1,nelt
+         do iface = 1, nface
+            if (cbc(iface,iel,1) .eq. 'v  ') then
+               cbc(iface,iel,1) = 'v'
+            endif
+            if (cbc(iface,iel,1) .eq. 'int') then
+               cbc(iface,iel,1) = 'W  '
+            endif
+            if (cbc(iface,iel,1) .eq. 'O  ') then
+               cbc(iface,iel,1) = 'O  '
+            endif
+         enddo 
+      enddo
+
+      return
+      end

@@ -1,0 +1,62 @@
+[GENERAL]
+polynomialOrder = 7
+#startFrom = "restart.fld"
+numSteps = 300000
+dt = 1e-5
+subCyclingSteps = 2
+timeStepper = tombo2
+writeInterval = 10000
+#startFrom = "./inner0.f00031"
+#startFrom = "./innergeo.f00000"
+#startFrom = "./innerc2.f00000+refine=2"
+startFrom = "./innerc5.f00000"
+
+
+udf = "../turbine.udf"
+
+regularization = hpfrt + nModes=1 + scalingCoeff=5
+
+
+[PROBLEMTYPE]
+equation = navierStokes+variableViscosity
+
+[NEKNEK]
+boundaryEXTOrder = 1
+ascentUseGlobalComm = true
+
+[PRESSURE]
+residualTol = 1e-04
+
+[VELOCITY]
+residualTol = 1e-6
+density = 1.0
+viscosity = 1/500000
+boundaryTypeMap = interpolation, codedFixedValue
+solver=pcg+block
+
+[MESH]
+solver=user
+refine=2
+file = "inner.re2"
+
+[SCALAR00]
+boundaryTypeMap = interpolation, codedFixedValue 
+residualTol = 1e-06
+rho = 1.0
+diffusivity = 1/500000
+
+[SCALAR01] # k
+boundaryTypeMap = interpolation, codedFixedValue 
+residualTol = 1e-08
+
+[SCALAR02] # tau
+boundaryTypeMap = interpolation, codedFixedValue 
+residualTol = 1e-06
+
+[SCALAR03] # lambda2
+solver = none
+
+[CASEDATA]
+P_OMEGA = 0.110
+processAscentYamlFrequency = 10000
+turbine_session = 1

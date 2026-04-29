@@ -64,6 +64,17 @@ C=======================================================================
             endif
          enddo 
       enddo
+      
+      do iel=1,nelt
+      do ifc=1,2*ndim
+         if (cbc(ifc,iel,1) .eq. 'v  ') then
+           boundaryID(ifc,iel) = 1
+         endif
+         if (cbc(ifc,iel,1) .eq. 'O  ') then
+           boundaryID(ifc,iel) = 2
+         endif
+      enddo
+      enddo
 
       return
       end

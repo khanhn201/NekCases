@@ -1,0 +1,5 @@
+#!/bin/bash
+gpu_id=$(((PALS_LOCAL_RANKID / 2) % 6))
+tile_id=$((PALS_LOCAL_RANKID % 2))
+export ZE_AFFINITY_MASK=$gpu_id.$tile_id
+"$@"

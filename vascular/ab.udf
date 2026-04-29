@@ -19,9 +19,9 @@
 // Boundary conditions
 void udfDirichlet(bcData *bc)
 {
-      bc->u = -1.0;
-      bc->v = 0.0;
-      bc->w = -1.0;
+      bc->uxFluid = -1.0;
+      bc->uyFluid = 0.0;
+      bc->uzFluid = -1.0;
 }
 
 #endif
@@ -47,25 +47,10 @@ void uservp(double time)
 
 void UDF_Setup()
 {
-  nrs->userProperties = &uservp;
-  nrs->userScalarSource = &userq;
-
-  auto mesh = nrs->mesh;
 }
 
 void UDF_ExecuteStep(double time, int tstep)
 {
-  const bool movingMesh = platform->options.compareArgs("MOVING MESH", "TRUE");
-  if (movingMesh) {
-    auto *mesh = nrs->meshV;
-    if (turbine_session == 1) userMeshVelocity(mesh->Nlocal, nrs->fieldOffset, mesh->o_x, mesh->o_y, mesh->o_z, mesh->o_U);
-    if (turbine_session == 2) userMeshVelocityNull(mesh->Nlocal, nrs->fieldOffset, mesh->o_x, mesh->o_y, mesh->o_z, mesh->o_U);
-  }
-
-  auto meshV = nrs->mesh;
-
-  if (nrs->lastStep) iofld->close();
-  if (tstep > 0 && tstep % 100 == 0) platform->device.printMemoryUsage(platform->comm.mpiComm);
 
 }
 

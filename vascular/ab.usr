@@ -53,13 +53,13 @@ C=======================================================================
 
       do iel=1,nelt
          do iface = 1, nface
-            if (cbc(iface,iel,1) .eq. 'v  ') then
+            if (cbc(iface,iel,1) .eq. 'v  ') then ! Graft
                cbc(iface,iel,1) = 'v  '
             endif
-            if (cbc(iface,iel,1) .eq. 'int') then
+            if (cbc(iface,iel,1) .eq. 'int') then ! Left (45deg to graft)
                cbc(iface,iel,1) = 'W  '
             endif
-            if (cbc(iface,iel,1) .eq. 'O  ') then
+            if (cbc(iface,iel,1) .eq. 'O  ') then ! Right (135deg to graft)
                cbc(iface,iel,1) = 'O  '
             endif
          enddo 

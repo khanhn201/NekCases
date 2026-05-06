@@ -1,0 +1,17 @@
+[GENERAL]
+numSteps = 100000
+dt = 1e-3
+# timeStepper = tombo2
+writeInterval = 1000
+
+
+[PROBLEMTYPE]
+equation = navierStokes
+
+[PRESSURE]
+residualTol = 1e-8
+
+[VELOCITY]
+residualTol = 1e-8
+density = 1.0
+viscosity = 4/500

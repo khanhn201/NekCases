@@ -35,7 +35,7 @@ c
       UDIFF  = viscosity * ( 1. +  5000.*ramp0 )
       UTRANS = density
 c
-      if (istep.ne.istepo.and.nid.eq.0)  
+      if (nid.eq.0)  
      $    write(6,1) istep,' udiff:',udiff,utrans,ramp0
     1 format(i8,a7,1p3e15.5)
       istepo = istep
@@ -48,6 +48,8 @@ c
 c     tau = .05   ! in vivo units
 c
       ramp_to_zero = 0.
+      ramp_to_zero = 1.0*exp(-time/tau)
+      return
 c
       if (time.lt.0) then
          ramp_to_zero = 1.0
@@ -106,8 +108,8 @@ c
       if (icalld.gt.1) then
          call flux_adjust             ! Cannot call this till 1st step
          call flux_calc(flx,vx,vy,vz)
-         if (nid.eq.0) write(6,1) istep,time,(flx(k),k=1,2)
-    1    format(i10,1p3e15.7,'   flux')
+         if (nid.eq.0) write(6,1) istep,time,(flx(k),k=1,3)
+    1    format(i10,1p4e15.7,'   flux')
       endif
       call avg_all
 c
@@ -144,7 +146,7 @@ c
 c
       iface = eface1(iside)   !   Convert from prenek to nek numbering
 c
-      lsteady = .false.
+      lsteady = .true.
 c
 c     This is the bc for the carotid
 c
@@ -162,7 +164,7 @@ c       uz = vmax0*(1.-rr/(rad0*rad0))
       else
         if (time.gt.timel) then
            timel = time
-           call set_womer
+c          call set_womer
         endif
         xx = x-cgx0
         yy = y-cgy0
@@ -333,7 +335,6 @@ c
             cgy   = facdot(ym1(1,1,1,e),area(1,1,f,e),f)
             cgz   = facdot(zm1(1,1,1,e),area(1,1,f,e),f)
             cgl   = cgy/are
-            ieg   = lglel(e,node)
             nsurf = nsurf+1
             iesurf(nsurf)=e
             ifsurf(nsurf)=f
@@ -346,7 +347,7 @@ c
                   cgy1 = cgy1 + cgy
                   cgz1 = cgz1 + cgz
                   are1 = are1 + are
-                  itsurf(nsurf)=1
+                  itsurf(nsurf)=2
                else
                   unx2 = unx2 + ulx
                   uny2 = uny2 + uly
@@ -355,7 +356,7 @@ c
                   cgy2 = cgy2 + cgy
                   cgz2 = cgz2 + cgz
                   are2 = are2 + are
-                  itsurf(nsurf)=2
+                  itsurf(nsurf)=1
                endif
             else
                unx0 = unx0 + ulx
@@ -511,13 +512,10 @@ c
 c     Swap the comments on these two lines if you don't want to fix the
 c     flow rate for periodic-in-X flow problems.
 c
-      parameter (kx1=lx1,ky1=ly1,kz1=lz1,kx2=lx2,ky2=ly2,kz2=lz2)
-c     parameter (kx1=1,ky1=1,kz1=1,kx2=1,ky2=1,kz2=1)
-c
-      common /cvflow_a/ vxc(kx1,ky1,kz1,lelv)
-     $                , vyc(kx1,ky1,kz1,lelv)
-     $                , vzc(kx1,ky1,kz1,lelv)
-     $                , prc(kx2,ky2,kz2,lelv)
+      common /cvflow_a/ vxc(lx1,ly1,lz1,lelv)
+     $                , vyc(lx1,ly1,lz1,lelv)
+     $                , vzc(lx1,ly1,lz1,lelv)
+     $                , prc(lx2,ly2,lz2,lelv)
       common /cvflow_r/ flow_rate,base_flow,flx(3)
 c
       real bd_vflow,dt_vflow
@@ -533,11 +531,8 @@ c
       ntot2 = nx2*ny2*nz2*nelv
 c
 c
+      param(56) = 0.7
       if (param(56).eq.0.) return
-      if (kx1.eq.1) then
-         write(6,*) 'ABORT. Recompile flux_adjust with kx1=lx1, etc.'
-         call exitt
-      endif
 c
 c
 c     If either dt or the backwards difference coefficient change,
@@ -612,6 +607,8 @@ c
 c
       ntot1 = nx1*ny1*nz1*nelv
       ntot2 = nx2*ny2*nz2*nelv
+c     ntot1 = lx1*ly1*lz1*lelv
+c     ntot2 = lx2*ly2*lz2*lelv
 c
       if (ifsplit) then
          write(6,*) 'CAR: no flux adjust for plan2, ABORT'
@@ -623,7 +620,7 @@ c
          call rzero(vzc,ntot1)
          call rzero(prc,ntot2)
          call plan3_flx(vxc,vyc,vzc,prc,1)
-c        call outpost(vxc,vyc,vzc,prc,vxc,'   ')
+c        call outpost(vxc,vyc,vzc,prc,vxc,'p11')
          call flux_calc(flx,vxc,vyc,vzc)
 c
          call chsign(vxc,ntot1)
@@ -632,7 +629,7 @@ c
          call chsign(prc,ntot2)
 c
          call plan3_flx(vxc,vyc,vzc,prc,2)
-c        call outpost(vxc,vyc,vzc,prc,vxc,'   ')
+c        call outpost(vxc,vyc,vzc,prc,vxc,'p12')
          call flux_calc(flx,vxc,vyc,vzc)
          if (nid.eq.0) write(6,*) 'CAR: flow 2:',flx(1),flx(2),flx(3)
          ifdivf = .false.
@@ -687,6 +684,8 @@ c     Compute velocity, 1st part
 c
       ntot1  = nx1*ny1*nz1*nelv
       ntot2  = nx2*ny2*nz2*nelv
+c     ntot1 = lx1*ly1*lz1*lelv
+c     ntot2 = lx2*ly2*lz2*lelv
       ifield = 1
 c
 c
@@ -698,7 +697,7 @@ c
       call rzero    (dv1,ntot1)
       call rzero    (dv2,ntot1)
       call rzero    (dv3,ntot1)
-      call bcdirvc  (dv1,dv2,dv3)
+      call bcdirvc  (dv1,dv2,dv3,v1mask,v2mask,v3mask)
 c
       dvmax = 0    !  rescale velocity to have roughly unit norm
       do i=1,ntot1
@@ -713,11 +712,11 @@ c
       call cmult(dv3,scale,ntot1)
 c
       intype = -1
-      call cfill    (vdiff,param(2),ntot1)       ! put target viscosity
+c     call cfill    (vdiff,param(2),ntot1)       ! put target viscosity
       call sethlm   (h1,h2,intype)
       call ophx     (rw1,rw2,rw3,dv1,dv2,dv3,h1,h2)
       call ophinv   (dv1,dv2,dv3,rw1,rw2,rw3,h1,h2,tolhv,nmxh)
-      call bcdirvc  (dv1,dv2,dv3)
+      call bcdirvc  (dv1,dv2,dv3,v1mask,v2mask,v3mask)
       call ssnormd  (dv1,dv2,dv3)
       call opadd2   (vxc,vyc,vzc,dv1,dv2,dv3)
 c

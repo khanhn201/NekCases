@@ -1,8 +1,8 @@
 [GENERAL]
-numSteps = 100000
-dt = 1e-3
+numSteps = 1000
+dt = 1e-2
 # timeStepper = tombo2
-writeInterval = 1000
+writeInterval = 10
 
 
 [PROBLEMTYPE]

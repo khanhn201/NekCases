@@ -9,7 +9,8 @@ filterModes = 2
 filterWeight = 10.0
 
 [PROBLEMTYPE]
-equation = navierStokes+variableViscosity
+# equation = navierStokes+variableViscosity
+variableProperties = yes
 
 [PRESSURE]
 residualTol = 1e-8

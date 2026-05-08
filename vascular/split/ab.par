@@ -4,9 +4,12 @@ dt = 1e-2
 # timeStepper = tombo2
 writeInterval = 10
 
+filtering = hpfrt
+filterModes = 2
+filterWeight = 10.0
 
 [PROBLEMTYPE]
-equation = navierStokes
+equation = navierStokes+variableViscosity
 
 [PRESSURE]
 residualTol = 1e-8

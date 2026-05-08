@@ -27,10 +27,10 @@ c     Be sure that param(1) = density
 c                       (2) = dynamic viscosity
 c                      (30) = 1.   (in order to force calling this routine)
 c
-      density   = param(1)
-      viscosity = param(2)  ! dynamic viscosity, mu
+      density   = 1.0
+      viscosity = 4.0/500.0
 c
-      tau    = .05
+      tau    = .5
       ramp0  = ramp_to_zero(time,tau)
       UDIFF  = viscosity * ( 1. +  5000.*ramp0 )
       UTRANS = density
@@ -44,9 +44,6 @@ c
       end
 c-----------------------------------------------------------------------
       function ramp_to_zero (time,tau)
-c
-c     tau = .05   ! in vivo units
-c
       ramp_to_zero = 0.
       ramp_to_zero = 1.0*exp(-time/tau)
       return
@@ -96,7 +93,13 @@ c
       save    icalld
       data    icalld  /0/
 c
-c
+      common /myoutflow/ d(lx1,ly1,lz1,lelt),m1(lx1*ly1*lz1,lelt)
+      real m1
+
+      rq  = 1.5
+      uin = 0.
+c     call turb_outflow(d,m1,rq,uin)
+
       ifdivf = .false.    !  Set nontrivial divergence for outflow ICA bc.
       if (istep.gt.iostep) ifxyo = .false.  ! No geometry output after .fld01
 c
@@ -174,7 +177,7 @@ c          call set_womer
         if (rr.gt.0) rr = sqrt(rr)
         uwom = eval_womer(rr)
 c
-        tau   = .05
+        tau   = .5
         if (time.lt.tau) then
            ramp0 = ramp_to_zero(time,tau)
            ramp1 = 1.-ramp0**6
@@ -531,7 +534,7 @@ c
       ntot2 = nx2*ny2*nz2*nelv
 c
 c
-      param(56) = 0.7
+      param(56) = 0.8
       if (param(56).eq.0.) return
 c
 c
@@ -556,11 +559,11 @@ c     tstar         = time - 1.6266342E+00
 c     tau           = 5.e-5
 c
       tstar         = time - .075  ! Start flux adjust after t > 0.075
-      tau           = .05          ! Ramp-up flux adjust over t=.075--.125
+      tau           = .5          ! Ramp-up flux adjust over t=.075--.125
 c
 c
       flux2_desired = param(56)*total_flux
-      dflux2 = ( flux2_desired-flx(2) ) * (1.-ramp_to_zero(tstar,tau))
+      dflux2 = ( flux2_desired-flx(2) ) * (1.-ramp_to_zero(time,tau))
       scale  = dflux2/base_flow
 c
       old1 = flx(1)/total_flux

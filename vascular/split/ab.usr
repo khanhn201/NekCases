@@ -30,7 +30,7 @@ c
       density   = 1.0
       viscosity = 4.0/500.0
  
-      tau    = .5
+      tau    = 0.5
       ramp0  = ramp_to_zero(time,tau)
       UDIFF  = viscosity * ( 1. +  5000.*ramp0 )
       UTRANS = density
@@ -177,7 +177,7 @@ c          call set_womer
         if (rr.gt.0) rr = sqrt(rr)
         uwom = eval_womer(rr)
 c
-        tau   = .5
+        tau   = 0.5
         if (time.lt.tau) then
            ramp0 = ramp_to_zero(time,tau)
            ramp1 = 1.-ramp0**6
@@ -350,7 +350,7 @@ c
                   cgy1 = cgy1 + cgy
                   cgz1 = cgz1 + cgz
                   are1 = are1 + are
-                  itsurf(nsurf)=2
+                  itsurf(nsurf)=1
                else
                   unx2 = unx2 + ulx
                   uny2 = uny2 + uly
@@ -359,7 +359,7 @@ c
                   cgy2 = cgy2 + cgy
                   cgz2 = cgz2 + cgz
                   are2 = are2 + are
-                  itsurf(nsurf)=1
+                  itsurf(nsurf)=2
                endif
             else
                unx0 = unx0 + ulx
@@ -534,7 +534,7 @@ c
       ntot2 = nx2*ny2*nz2*nelv
 c
 c
-      param(56) = 0.8
+      param(56) = 0.3
       if (param(56).eq.0.) return
 c
 c
@@ -552,15 +552,7 @@ c
 c     total_flux    = flx(1)+flx(2)       ! 8/3/02, pff.
       total_flux    = -flx(3)             ! flx(1) is messed up because of
       flx1          = -(flx(2)+flx(3))    ! special outflow bc for turbulence
-c
-c     tstar         = time - 0.77
-c     tstar         = time - 0.1346654E+01
-c     tstar         = time - 1.6266342E+00
-c     tau           = 5.e-5
-c
-      tstar         = time - .075  ! Start flux adjust after t > 0.075
-      tau           = .5          ! Ramp-up flux adjust over t=.075--.125
-c
+      tau           = 0.5          ! Ramp-up flux adjust over t=.075--.125
 c
       flux2_desired = param(56)*total_flux
       dflux2 = ( flux2_desired-flx(2) ) * (1.-ramp_to_zero(time,tau))
@@ -715,7 +707,7 @@ c
       call cmult(dv3,scale,ntot1)
 c
       intype = -1
-c     call cfill    (vdiff,param(2),ntot1)       ! put target viscosity
+      call cfill    (vdiff,4.0/500.0,ntot1)       ! put target viscosity
       call sethlm   (h1,h2,intype)
       call ophx     (rw1,rw2,rw3,dv1,dv2,dv3,h1,h2)
       call ophinv   (dv1,dv2,dv3,rw1,rw2,rw3,h1,h2,tolhv,nmxh)

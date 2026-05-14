@@ -27,6 +27,7 @@ c     Be sure that param(1) = density
 c                       (2) = dynamic viscosity
 c                      (30) = 1.   (in order to force calling this routine)
 c
+      return
       density   = 1.0
       viscosity = 4.0/500.0
  
@@ -297,7 +298,7 @@ c
      $               , cgx2,cgy2,cgz2,are2,rad2,qvol2,vmax2
      $               , cgbar
      $               , unx0,uny0,unz0,unx1,uny1,unz1,unx2,uny2,unz2
-      common /avgrafi/ nsurf,nbrnch,iesurf(200),ifsurf(200),itsurf(200)
+      common /avgrafi/ nsurf,nbrnch,iesurf(900),ifsurf(900),itsurf(900)
       character*1 cbb
 c
 c
@@ -341,8 +342,7 @@ c
             nsurf = nsurf+1
             iesurf(nsurf)=e
             ifsurf(nsurf)=f
-            if (cbb.eq.'O  ') then
-               if (boundaryID(f,e).eq.2) then ! graft
+            if (boundaryID(f,e).eq.2) then ! graft
                   unx1 = unx1 + ulx
                   uny1 = uny1 + uly
                   unz1 = unz1 + ulz
@@ -351,7 +351,7 @@ c
                   cgz1 = cgz1 + cgz
                   are1 = are1 + are
                   itsurf(nsurf)=1
-               else
+            elseif (boundaryID(f,e).eq.4) then
                   unx2 = unx2 + ulx
                   uny2 = uny2 + uly
                   unz2 = unz2 + ulz
@@ -360,7 +360,6 @@ c
                   cgz2 = cgz2 + cgz
                   are2 = are2 + are
                   itsurf(nsurf)=2
-               endif
             else
                unx0 = unx0 + ulx
                uny0 = uny0 + uly
@@ -431,7 +430,7 @@ c
       include 'SIZE'
       include 'TOTAL'
 c
-      common /avgrafi/ nsurf,nbrnch,iesurf(200),ifsurf(200),itsurf(200)
+      common /avgrafi/ nsurf,nbrnch,iesurf(900),ifsurf(900),itsurf(900)
       common /scruz/   one(lx1,ly1,lz1)
 c
       real m1(lx1,ly1,lz1,lelv)
@@ -479,7 +478,7 @@ c
      $               , cgx2,cgy2,cgz2,are2,rad2,qvol2,vmax2
      $               , cgbar
      $               , unx0,uny0,unz0,unx1,uny1,unz1,unx2,uny2,unz2
-      common /avgrafi/ nsurf,nbrnch,iesurf(200),ifsurf(200),itsurf(200)
+      common /avgrafi/ nsurf,nbrnch,iesurf(900),ifsurf(900),itsurf(900)
       integer e,f
 c
 c
@@ -590,6 +589,10 @@ c
      $   , vzc(lx1,ly1,lz1,lelv)
      $   , prc(lx2,ly2,lz2,lelv)
      $   , flx(3)
+      real vxc2(lx1,ly1,lz1,lelv)
+     $   , vyc2(lx1,ly1,lz1,lelv)
+     $   , vzc2(lx1,ly1,lz1,lelv)
+     $   , prc2(lx2,ly2,lz2,lelv)
 c
       common /cvflow_r/ flow_rate,base_flow
       common /cvflow_l/ ifdivf
@@ -602,9 +605,7 @@ c
 c
       ntot1 = nx1*ny1*nz1*nelv
       ntot2 = nx2*ny2*nz2*nelv
-c     ntot1 = lx1*ly1*lz1*lelv
-c     ntot2 = lx2*ly2*lz2*lelv
-c
+
       if (ifsplit) then
          write(6,*) 'CAR: no flux adjust for plan2, ABORT'
          call exitt
@@ -615,7 +616,7 @@ c
          call rzero(vzc,ntot1)
          call rzero(prc,ntot2)
          call plan3_flx(vxc,vyc,vzc,prc,1)
-c        call outpost(vxc,vyc,vzc,prc,vxc,'p11')
+         call outpost(vxc,vyc,vzc,prc,vxc,'p11')
          call flux_calc(flx,vxc,vyc,vzc)
 c
          call chsign(vxc,ntot1)
@@ -623,8 +624,17 @@ c
          call chsign(vzc,ntot1)
          call chsign(prc,ntot2)
 c
-         call plan3_flx(vxc,vyc,vzc,prc,2)
-c        call outpost(vxc,vyc,vzc,prc,vxc,'p12')
+         call rzero(vxc2,ntot1)
+         call rzero(vyc2,ntot1)
+         call rzero(vzc2,ntot1)
+         call rzero(prc2,ntot2)
+
+         call plan3_flx(vxc2,vyc2,vzc2,prc2,2)
+         call outpost(vxc2,vyc2,vzc2,prc2,vxc2,'p12')
+
+         call opadd2   (vxc,vyc,vzc,vxc2,vyc2,vzc2)
+         call add2    (prc,prc2,ntot2)
+
          call flux_calc(flx,vxc,vyc,vzc)
          if (nid.eq.0) write(6,*) 'CAR: flow 2:',flx(1),flx(2),flx(3)
          ifdivf = .false.
@@ -655,6 +665,7 @@ c
      $   , vyc(lx1,ly1,lz1,lelv)
      $   , vzc(lx1,ly1,lz1,lelv)
      $   , prc(lx2,ly2,lz2,lelv)
+     $   , vdiv(lx2,ly2,lz2,lelv)
 C
       COMMON /SCRNS/ rw1   (LX1,LY1,LZ1,LELV)
      $ ,             rw2   (LX1,LY1,LZ1,LELV)
@@ -673,14 +684,13 @@ c
      $ ,             sk2(LX1,LY1,LZ1,LELT)
      $ ,             sk3(LX1,LY1,LZ1,LELT)
        integer e
+      common /avgrafi/ nsurf,nbrnch,iesurf(900),ifsurf(900),itsurf(900)
 c
 c
 c     Compute velocity, 1st part
 c
       ntot1  = nx1*ny1*nz1*nelv
       ntot2  = nx2*ny2*nz2*nelv
-c     ntot1 = lx1*ly1*lz1*lelv
-c     ntot2 = lx2*ly2*lz2*lelv
       ifield = 1
 c
 c
@@ -688,7 +698,25 @@ c     Reset mask
 c
       call opcopy        (sk1,sk2,sk3,v1mask,v2mask,v3mask)
       call set_flx_msk   (v1mask,v2mask,v3mask,ibranch)
-c
+
+      do iel=1,nelt
+         do iface = 1,2*ldim
+            if (boundaryID(iface,iel).eq.4) then
+            if (ibranch.eq.1) then
+               cbc(iface,iel,1) = 'W  '
+	    endif
+	    endif
+            if (boundaryID(iface,iel).eq.2) then
+            if (ibranch.eq.2) then
+               cbc(iface,iel,1) = 'W  '
+	    endif
+	    endif
+         enddo 
+      enddo
+      call bcmask
+      call prinit
+      call outpost(v1mask,v2mask,v3mask,pmask,vxc,'msk')
+
       call rzero    (dv1,ntot1)
       call rzero    (dv2,ntot1)
       call rzero    (dv3,ntot1)
@@ -717,10 +745,13 @@ c
 c
 c     Compute pressure  (from "incompr")
 c
+
+
+
       intype = 1
-c     dtinv  = 1./dt   ! Why not bd(1)/dt ??
+c1    dtinv  = 1./dt   ! Why not bd(1)/dt ??
       dtinv  = bd(1)/dt   ! Why not bd(1)/dt ??
-c
+ 
       call rzero   (h1,ntot1)
       call copy    (h2,vtrans(1,1,1,1,ifield),ntot1)
       call cmult   (h2,dtinv,ntot1)
@@ -732,17 +763,18 @@ c
       call opdiv   (respr,dv1,dv2,dv3)
       call chsign  (respr,ntot2)
       call ortho   (respr)
-c
-c     Set istep=0 so that h1/h2 will be re-initialized in eprec
+ 
+c1     Set istep=0 so that h1/h2 will be re-initialized in eprec
       i_tmp = istep
       istep = 0
       call esolver (respr,h1,h2,h2inv,intype)
       istep = i_tmp
-c
+ 
       call opgradt (rw1,rw2,rw3,respr)
       call opbinv  (dv1,dv2,dv3,rw1,rw2,rw3,h2inv)
       call opadd2  (vxc,vyc,vzc,dv1,dv2,dv3)
-c
+ 
+
       vxcn = glmin(vxc,ntot1)
       vycn = glmin(vyc,ntot1)
       vzcn = glmin(vzc,ntot1)
@@ -756,6 +788,9 @@ c
       dv1m = glmax(dv1,ntot1)
       dv2m = glmax(dv2,ntot1)
       dv3m = glmax(dv3,ntot1)
+
+      vdivmx = glmax(vdiv,ntot2)
+      vdivmn = glmin(vdiv,ntot2)
 c
       if (nid.eq.0) then
          write(6,1) 'base_vcmn',vxcn,vycn,vzcn
@@ -768,6 +803,22 @@ c
 c
 c     Reset mask
       call opcopy  (v1mask,v2mask,v3mask,sk1,sk2,sk3)
+      do iel=1,nelt
+         do iface = 1,2*ldim
+            if (boundaryID(iface,iel).eq.4) then
+            if (ibranch.eq.1) then
+               cbc(iface,iel,1) = 'O  '
+	    endif
+	    endif
+            if (boundaryID(iface,iel).eq.2) then
+            if (ibranch.eq.2) then
+               cbc(iface,iel,1) = 'O  '
+	    endif
+	    endif
+         enddo 
+      enddo
+      call bcmask
+      call prinit
 c
       return
       end

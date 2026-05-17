@@ -27,7 +27,6 @@ c     Be sure that param(1) = density
 c                       (2) = dynamic viscosity
 c                      (30) = 1.   (in order to force calling this routine)
 c
-      return
       density   = 1.0
       viscosity = 4.0/500.0
  

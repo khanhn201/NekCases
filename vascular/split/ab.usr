@@ -606,8 +606,35 @@ c
       ntot2 = nx2*ny2*nz2*nelv
 
       if (ifsplit) then
-         write(6,*) 'CAR: no flux adjust for plan2, ABORT'
-         call exitt
+         ifdivf = .true.
+         call rzero(vxc,ntot1)
+         call rzero(vyc,ntot1)
+         call rzero(vzc,ntot1)
+         call rzero(prc,ntot2)
+         call plan4_flx(vxc,vyc,vzc,prc,1)
+         call outpost(vxc,vyc,vzc,prc,vxc,'p11')
+         call flux_calc(flx,vxc,vyc,vzc)
+c
+         call chsign(vxc,ntot1)
+         call chsign(vyc,ntot1)
+         call chsign(vzc,ntot1)
+         call chsign(prc,ntot2)
+c
+         call rzero(vxc2,ntot1)
+         call rzero(vyc2,ntot1)
+         call rzero(vzc2,ntot1)
+         call rzero(prc2,ntot2)
+
+         call plan4_flx(vxc2,vyc2,vzc2,prc2,2)
+         call outpost(vxc2,vyc2,vzc2,prc2,vxc2,'p12')
+
+         call opadd2   (vxc,vyc,vzc,vxc2,vyc2,vzc2)
+         call add2    (prc,prc2,ntot2)
+         call outpost(vxc,vyc,vzc,prc,vxc,'p13')
+
+         call flux_calc(flx,vxc,vyc,vzc)
+         if (nid.eq.0) write(6,*) 'CAR: flow 2:',flx(1),flx(2),flx(3)
+         ifdivf = .false.
       else
          ifdivf = .true.
          call rzero(vxc,ntot1)
@@ -633,6 +660,7 @@ c
 
          call opadd2   (vxc,vyc,vzc,vxc2,vyc2,vzc2)
          call add2    (prc,prc2,ntot2)
+         call outpost(vxc,vyc,vzc,prc,vxc,'p13')
 
          call flux_calc(flx,vxc,vyc,vzc)
          if (nid.eq.0) write(6,*) 'CAR: flow 2:',flx(1),flx(2),flx(3)
@@ -703,23 +731,23 @@ c
             if (boundaryID(iface,iel).eq.4) then
             if (ibranch.eq.1) then
                cbc(iface,iel,1) = 'W  '
-	    endif
-	    endif
+      endif
+      endif
             if (boundaryID(iface,iel).eq.2) then
             if (ibranch.eq.2) then
                cbc(iface,iel,1) = 'W  '
-	    endif
-	    endif
+      endif
+      endif
          enddo 
       enddo
       call bcmask
       call prinit
-      call outpost(v1mask,v2mask,v3mask,pmask,vxc,'msk')
 
       call rzero    (dv1,ntot1)
       call rzero    (dv2,ntot1)
       call rzero    (dv3,ntot1)
       call bcdirvc  (dv1,dv2,dv3,v1mask,v2mask,v3mask)
+      call bcneutr
 c
       dvmax = 0    !  rescale velocity to have roughly unit norm
       do i=1,ntot1
@@ -771,7 +799,9 @@ c1     Set istep=0 so that h1/h2 will be re-initialized in eprec
  
       call opgradt (rw1,rw2,rw3,respr)
       call opbinv  (dv1,dv2,dv3,rw1,rw2,rw3,h2inv)
+
       call opadd2  (vxc,vyc,vzc,dv1,dv2,dv3)
+      call add2    (prc,respr,ntot2)
  
 
       vxcn = glmin(vxc,ntot1)
@@ -798,7 +828,6 @@ c
          write(6,1) 'base_dvmx',dv1m,dv2m,dv3m
       endif
     1 format(a9,1p3e14.5)
-      call add2    (prc,respr,ntot2)
 c
 c     Reset mask
       call opcopy  (v1mask,v2mask,v3mask,sk1,sk2,sk3)
@@ -807,13 +836,13 @@ c     Reset mask
             if (boundaryID(iface,iel).eq.4) then
             if (ibranch.eq.1) then
                cbc(iface,iel,1) = 'O  '
-	    endif
-	    endif
+      endif
+      endif
             if (boundaryID(iface,iel).eq.2) then
             if (ibranch.eq.2) then
                cbc(iface,iel,1) = 'O  '
-	    endif
-	    endif
+      endif
+      endif
          enddo 
       enddo
       call bcmask
@@ -821,6 +850,213 @@ c     Reset mask
 c
       return
       end
+c-----------------------------------------------------------------------
+      subroutine plan4_flx(vxc,vyc,vzc,prc,ibranch)
+c
+c     Compute pressure and velocity using fractional step method.
+c     (PLAN4).
+c
+c
+      include 'SIZE'
+      include 'TOTAL'
+c
+      real vxc(lx1,ly1,lz1,lelv)
+     $   , vyc(lx1,ly1,lz1,lelv)
+     $   , vzc(lx1,ly1,lz1,lelv)
+     $   , prc(lx2,ly2,lz2,lelv)
+     $   , vdiv(lx2,ly2,lz2,lelv)
+     $   , resv2(lx2,ly2,lz2,lelv)
+C
+      COMMON /SCRNS/ rw1   (LX1,LY1,LZ1,LELV)
+     $ ,             rw2   (LX1,LY1,LZ1,LELV)
+     $ ,             rw3   (LX1,LY1,LZ1,LELV)
+     $ ,             dv1   (LX1,LY1,LZ1,LELV)
+     $ ,             dv2   (LX1,LY1,LZ1,LELV)
+     $ ,             dv3   (LX1,LY1,LZ1,LELV)
+     $ ,             RESPR (LX2*LY2*LZ2,LELV)
+      COMMON /SCRVH/ H1    (LX1*LY1*LZ1,LELV)
+     $ ,             H2    (LX1*LY1*LZ1,LELV)
+      COMMON /SCRHI/ H2INV (LX1*LY1*LZ1*LELV)
+      COMMON /SCRMG/ W1    (LX1*LY1*LZ1,LELV)
+     $ ,             W2    (LX1*LY1*LZ1,LELV)
+     $ ,             W3    (LX1*LY1*LZ1,LELV)
+c
+      COMMON /SCRSF/ sk1(LX1,LY1,LZ1,LELT)
+     $ ,             sk2(LX1,LY1,LZ1,LELT)
+     $ ,             sk3(LX1,LY1,LZ1,LELT)
+      integer e
+      common /avgrafi/ nsurf,nbrnch,iesurf(900),ifsurf(900),itsurf(900)
+      CHARACTER CB*3
+
+c
+c
+c     Compute velocity, 1st part
+c
+      ntot1  = nx1*ny1*nz1*nelv
+      ntot2  = nx2*ny2*nz2*nelv
+
+      ifield = 1
+c
+c
+c     Reset mask
+c
+      call opcopy        (sk1,sk2,sk3,v1mask,v2mask,v3mask)
+      call set_flx_msk   (v1mask,v2mask,v3mask,ibranch)
+
+      do iel=1,nelt
+         do iface = 1,2*ldim
+            if (boundaryID(iface,iel).eq.4) then
+            if (ibranch.eq.1) then
+               cbc(iface,iel,1) = 'W  '
+      endif
+      endif
+            if (boundaryID(iface,iel).eq.2) then
+            if (ibranch.eq.2) then
+               cbc(iface,iel,1) = 'W  '
+      endif
+      endif
+         enddo 
+      enddo
+
+      call bcmask
+      call prinit
+
+      call rzero    (dv1,ntot1)
+      call rzero    (dv2,ntot1)
+      call rzero    (dv3,ntot1)
+      call bcdirvc  (dv1,dv2,dv3,v1mask,v2mask,v3mask)
+      call bcneutr
+
+      dvmax = 0    !  rescale velocity to have roughly unit norm
+      do i=1,ntot1
+         dvel  = dv1(i,1,1,1)*dv1(i,1,1,1)
+     $          +dv2(i,1,1,1)*dv2(i,1,1,1)
+     $          +dv3(i,1,1,1)*dv3(i,1,1,1)
+         dvmax = max(dvmax,dvel)
+      enddo
+      dvmax = glmax(dvmax,1)
+      dvmax = sqrt (dvmax)
+      scale = 10./dvmax
+      call cmult(dv1,scale,ntot1)
+      call cmult(dv2,scale,ntot1)
+      call cmult(dv3,scale,ntot1)
+
+      dv1n = glmin(dv1,ntot1)
+      dv2n = glmin(dv2,ntot1)
+      dv3n = glmin(dv3,ntot1)
+c
+      dv1m = glmax(dv1,ntot1)
+      dv2m = glmax(dv2,ntot1)
+      dv3m = glmax(dv3,ntot1)
+      if (nid.eq.0) then
+         write(6,*) 'base_dvmn1',dv1n,dv2n,dv3n
+         write(6,*) 'base_dvmx1',dv1m,dv2m,dv3m
+      endif
+
+c     Compute pressure 
+      dtbd = BD(1)/DT
+
+      NXYZ1  = lx1*ly1*lz1
+
+      call cfill    (respr,0.0,ntot2)
+      DO IEL=1,NELV
+         DO IFC=1,2*ldim
+            CALL RZERO  (W1(1,IEL),NXYZ1)
+            CALL RZERO  (W2(1,IEL),NXYZ1)
+            IF (ldim.EQ.3)
+     $      CALL RZERO  (W3(1,IEL),NXYZ1)
+            CB = CBC(IFC,IEL,IFIELD)
+            IF (CB.EQ.'v  ') then
+               CALL FACCL3
+     $         (W1(1,IEL),dv1(1,1,1,IEL),UNX(1,1,IFC,IEL),IFC)
+               CALL FACCL3
+     $         (W2(1,IEL),dv2(1,1,1,IEL),UNY(1,1,IFC,IEL),IFC)
+               IF (ldim.EQ.3)
+     $          CALL FACCL3
+     $         (W3(1,IEL),dv3(1,1,1,IEL),UNZ(1,1,IFC,IEL),IFC)
+            ENDIF
+            CALL ADD2   (W1(1,IEL),W2(1,IEL),NXYZ1)
+            IF (ldim.EQ.3)
+     $      CALL ADD2   (W1(1,IEL),W3(1,IEL),NXYZ1)
+            CALL FACCL2 (W1(1,IEL),AREA(1,1,IFC,IEL),IFC)
+            IF (CB.EQ.'v  ') then
+              CALL CMULT(W1(1,IEL),dtbd,NXYZ1)
+            endif
+            CALL SUB2 (RESPR(1,IEL),W1(1,IEL),NXYZ1)
+         enddo
+      enddo
+
+      call invers2  (h1,vtrans,ntot1)
+      call rzero    (h2,ntot1)
+      call ctolspl  (tolspl,respr)
+
+      call hmholtz  ('PRES',prc,respr,h1,h2,pmask,vmult,
+     $                             imesh,tolspl,nmxp,1)
+      call ortho    (prc)
+
+C     Compute velocity
+      call cfill    (vdiff,4.0/500.0,ntot1)       ! put target viscosity
+
+      call opgrad   (rw1,rw2,rw3,prc)
+      if (ifaxis) call col2 (resv2,omask,n)
+      call opchsgn  (rw1,rw2,rw3)
+
+c     if (ifexplvis) call split_vis ! split viscosity into exp/imp part
+
+      intype = -1
+      call sethlm   (h1,h2,intype)
+      call ophinv   (vxc,vyc,vzc,rw1,rw2,rw3,h1,h2,tolhv,nmxh)
+      call opadd2   (vxc,vyc,vzc,dv1,dv2,dv3)
+
+c     if (ifexplvis) call redo_split_vis ! restore vdiff
+
+      vxcn = glmin(vxc,ntot1)
+      vycn = glmin(vyc,ntot1)
+      vzcn = glmin(vzc,ntot1)
+      dv1n = glmin(dv1,ntot1)
+      dv2n = glmin(dv2,ntot1)
+      dv3n = glmin(dv3,ntot1)
+c
+      vxcm = glmax(vxc,ntot1)
+      vycm = glmax(vyc,ntot1)
+      vzcm = glmax(vzc,ntot1)
+      dv1m = glmax(dv1,ntot1)
+      dv2m = glmax(dv2,ntot1)
+      dv3m = glmax(dv3,ntot1)
+
+      vdivmx = glmax(vdiv,ntot2)
+      vdivmn = glmin(vdiv,ntot2)
+c
+      if (nid.eq.0) then
+         write(6,1) 'base_vcmn',vxcn,vycn,vzcn
+         write(6,1) 'base_vcmx',vxcm,vycm,vzcm
+         write(6,1) 'base_dvmn',dv1n,dv2n,dv3n
+         write(6,1) 'base_dvmx',dv1m,dv2m,dv3m
+      endif
+    1 format(a9,1p3e14.5)
+c
+c     Reset mask
+      call opcopy  (v1mask,v2mask,v3mask,sk1,sk2,sk3)
+      do iel=1,nelt
+         do iface = 1,2*ldim
+            if (boundaryID(iface,iel).eq.4) then
+            if (ibranch.eq.1) then
+               cbc(iface,iel,1) = 'O  '
+      endif
+      endif
+            if (boundaryID(iface,iel).eq.2) then
+            if (ibranch.eq.2) then
+               cbc(iface,iel,1) = 'O  '
+      endif
+      endif
+         enddo 
+      enddo
+      call bcmask
+      call prinit
+c
+      return
+      end
+
 
 c-----------------------------------------------------------------------
 c     Womersley profile below

@@ -98,7 +98,7 @@ c
 
       rq  = 1.5
       uin = 0.
-c     call turb_outflow(d,m1,rq,uin)
+      call turb_outflow(d,m1,rq,uin)
 
       ifdivf = .false.    !  Set nontrivial divergence for outflow ICA bc.
       if (istep.gt.iostep) ifxyo = .false.  ! No geometry output after .fld01
@@ -936,7 +936,7 @@ c
       enddo
       dvmax = glmax(dvmax,1)
       dvmax = sqrt (dvmax)
-      scale = 10./dvmax
+      scale = 0.1/dvmax
       call cmult(dv1,scale,ntot1)
       call cmult(dv2,scale,ntot1)
       call cmult(dv3,scale,ntot1)

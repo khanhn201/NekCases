@@ -1,6 +1,6 @@
 [GENERAL]
 numSteps = 1000
-dt = 1e-2
+dt = 5e-3
 # timeStepper = tombo2
 writeInterval = 10
 
@@ -10,7 +10,7 @@ filterWeight = 10.0
 
 [PROBLEMTYPE]
 # equation = navierStokes+variableViscosity
-variableProperties = yes
+# variableProperties = yes
 
 [PRESSURE]
 residualTol = 1e-8

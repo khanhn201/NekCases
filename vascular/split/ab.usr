@@ -119,7 +119,7 @@ c
       return
       end
 c-----------------------------------------------------------------------
-      subroutine userbc (ix,iy,iz,iside,ieg)
+      subroutine userbc (ix,iy,iz,iface,ieg)
       include 'SIZE'
       include 'TSTEP'
       include 'NEKUSE'
@@ -146,8 +146,6 @@ c
       uy   = 0.
       uz   = 0.
       temp = 0.
-c
-      iface = eface1(iside)   !   Convert from prenek to nek numbering
 c
       lsteady = .true.
 c
@@ -218,6 +216,8 @@ c-----------------------------------------------------------------------
 
       integer e,eg,f
 
+      common /fluxsurf/ nfluxsurf,iefsurf(900),iffsurf(900),itfsurf(900)
+
       n = lx1*ly1*lz1*nelt
 
       nface = 2*ldim
@@ -237,14 +237,31 @@ c-----------------------------------------------------------------------
       enddo
 
 
+      nfluxsurf = 0
       do iel=1,nelt
          do iface = 1, nface
-            if (cbc(iface,iel,1) .eq. 'v  ') then ! Graft
+            if (cbc(iface,iel,1) .eq. 'f1 ') then ! Graft
+               cbc(iface,iel,1) = 'E  '
+               nfluxsurf = nfluxsurf+1
+               iefsurf(nfluxsurf)=iel
+               iffsurf(nfluxsurf)=iface
+               itfsurf(nfluxsurf)=1
+            elseif (cbc(iface,iel,1) .eq. 'f2 ') then ! Left (45deg to graft)
+               cbc(iface,iel,1) = 'E  '
+               nfluxsurf = nfluxsurf+1
+               iefsurf(nfluxsurf)=iel
+               iffsurf(nfluxsurf)=iface
+               itfsurf(nfluxsurf)=2
+            elseif (cbc(iface,iel,1) .eq. 'v  ') then ! Graft
                cbc(iface,iel,1) = 'O  '
             elseif (cbc(iface,iel,1) .eq. 'int') then ! Left (45deg to graft)
                cbc(iface,iel,1) = 'O  '
             elseif (cbc(iface,iel,1) .eq. 'O  ') then ! Right (135deg to graft)
                cbc(iface,iel,1) = 'v  '
+               nfluxsurf = nfluxsurf+1
+               iefsurf(nfluxsurf)=iel
+               iffsurf(nfluxsurf)=iface
+               itfsurf(nfluxsurf)=3
             endif
          enddo 
       enddo
@@ -478,14 +495,16 @@ c
      $               , cgbar
      $               , unx0,uny0,unz0,unx1,uny1,unz1,unx2,uny2,unz2
       common /avgrafi/ nsurf,nbrnch,iesurf(900),ifsurf(900),itsurf(900)
+
+      common /fluxsurf/ nfluxsurf,iefsurf(900),iffsurf(900),itfsurf(900)
       integer e,f
 c
 c
       call rzero(flux,nbrnch)
-      do i=1,nsurf
-         j=itsurf(i)
-         f=ifsurf(i)
-         e=iesurf(i)
+      do i=1,nfluxsurf
+         j=itfsurf(i)
+         f=iffsurf(i)
+         e=iefsurf(i)
          flux(j) = flux(j)+ facint(ux,unx,area,f,e)
      $           +          facint(uy,uny,area,f,e)
      $           +          facint(uz,unz,area,f,e)

@@ -98,7 +98,7 @@ c
 
       rq  = 1.5
       uin = 0.
-      call turb_outflow(d,m1,rq,uin)
+c     call turb_outflow(d,m1,rq,uin)
 
       ifdivf = .false.    !  Set nontrivial divergence for outflow ICA bc.
       if (istep.gt.iostep) ifxyo = .false.  ! No geometry output after .fld01
@@ -147,33 +147,28 @@ c
       uz   = 0.
       temp = 0.
 c
-      lsteady = .true.
-c
 c     This is the bc for the carotid
 c
+      lsteady = .true.
       ie = gllel(ieg)
       if (lsteady) then
         xx = x-cgx0
         yy = y-cgy0
         rr = xx*xx + yy*yy
-c       uz = vmax0*(1.-rr/(rad0*rad0))
         um = vmax0*(1.-rr/(rad0*rad0))
         ux = -unx(ix,iy,iface,ie) * um
         uy = -uny(ix,iy,iface,ie) * um
         uz = -unz(ix,iy,iface,ie) * um
         temp= 1. + uz/vmax0
       else
-        if (time.gt.timel) then
-           timel = time
-c          call set_womer
-        endif
+        call set_womer
         xx = x-cgx0
         yy = y-cgy0
         zz = z-cgz0
         rt = xx*xx + yy*yy + zz*zz
         rr = rt/(rad0*rad0)
         if (rr.gt.0) rr = sqrt(rr)
-        uwom = eval_womer(rr)
+        uwom = womer(rr, 0.1)
 c
         tau   = 0.5
         if (time.lt.tau) then
@@ -581,6 +576,7 @@ c
       flux2_desired = param(56)*total_flux
       dflux2 = ( flux2_desired-flx(2) ) * (1.-ramp_to_zero(time,tau))
       scale  = dflux2/base_flow
+c     scale = 0.0
 c
       old1 = flx(1)/total_flux
       old2 = flx(2)/total_flux
@@ -591,10 +587,12 @@ c
      $            , old1,old2
     1    format(i8,e14.7,8e11.3,2f6.3,' CAR:volflow')
 c
+c     call outpost(vx,vy,vz,pr,vx,'p21')
       call add2s2(vx,vxc,scale,ntot1)
       call add2s2(vy,vyc,scale,ntot1)
       call add2s2(vz,vzc,scale,ntot1)
       call add2s2(pr,prc,scale,ntot2)
+c     call outpost(vx,vy,vz,pr,vx,'p22')
 c
       return
       end
@@ -630,6 +628,9 @@ c
 c
       ntot1 = nx1*ny1*nz1*nelv
       ntot2 = nx2*ny2*nz2*nelv
+      if (nid.eq.0) write(6,*) "param(40) ", param(40)
+      if (nid.eq.0) write(6,*) "param(43) ", param(43)
+      if (nid.eq.0) write(6,*) "ifmgrid ", ifmgrid
 
       if (ifsplit) then
          ifdivf = .true.
@@ -692,6 +693,8 @@ c
          if (nid.eq.0) write(6,*) 'CAR: flow 2:',flx(1),flx(2),flx(3)
          ifdivf = .false.
       endif
+      if (nid.eq.0) write(6,*) "param(40) ", param(40)
+      if (nid.eq.0) write(6,*) "param(43) ", param(43)
 c
 c     Compute base flow rate  
 c
@@ -767,6 +770,7 @@ c
          enddo 
       enddo
       call bcmask
+      call crs_free(xxth(1))
       call prinit
 
       call rzero    (dv1,ntot1)
@@ -788,7 +792,7 @@ c
       call cmult(dv3,scale,ntot1)
 c
       intype = -1
-      call cfill    (vdiff,4.0/500.0,ntot1)       ! put target viscosity
+c     call cfill    (vdiff,4.0/500.0,ntot1)       ! put target viscosity
       call sethlm   (h1,h2,intype)
       call ophx     (rw1,rw2,rw3,dv1,dv2,dv3,h1,h2)
       call ophinv   (dv1,dv2,dv3,rw1,rw2,rw3,h1,h2,tolhv,nmxh)
@@ -808,10 +812,10 @@ c1    dtinv  = 1./dt   ! Why not bd(1)/dt ??
       call rzero   (h1,ntot1)
       call copy    (h2,vtrans(1,1,1,1,ifield),ntot1)
       call cmult   (h2,dtinv,ntot1)
-      do e=1,nelv
-        call map12(h1m2(1,e),h1(1,e),e)
-        call map12(h2m2(1,e),h2(1,e),e)
-      enddo
+c     do e=1,nelv
+c       call map12(h1m2(1,e),h1(1,e),e)
+c       call map12(h2m2(1,e),h2(1,e),e)
+c     enddo
       call invers2 (h2inv,h2,ntot1)
       call opdiv   (respr,dv1,dv2,dv3)
       call chsign  (respr,ntot2)
@@ -872,6 +876,7 @@ c     Reset mask
          enddo 
       enddo
       call bcmask
+      call crs_free(xxth(1))
       call prinit
 c
       return
@@ -945,6 +950,7 @@ c
       enddo
 
       call bcmask
+      call crs_free(xxth(1))
       call prinit
 
       call rzero    (dv1,ntot1)
@@ -1017,11 +1023,11 @@ c     Compute pressure
       call ctolspl  (tolspl,respr)
 
       call hmholtz  ('PRES',prc,respr,h1,h2,pmask,vmult,
-     $                             imesh,tolspl,nmxp,1)
+     $                             imesh,tolspl,10000,1)
       call ortho    (prc)
 
 C     Compute velocity
-      call cfill    (vdiff,4.0/500.0,ntot1)       ! put target viscosity
+c     call cfill    (vdiff,4.0/500.0,ntot1)       ! put target viscosity
 
       call opgrad   (rw1,rw2,rw3,prc)
       if (ifaxis) call col2 (resv2,omask,n)
@@ -1078,6 +1084,7 @@ c     Reset mask
          enddo 
       enddo
       call bcmask
+      call crs_free(xxth(1))
       call prinit
 c
       return
@@ -1089,6 +1096,7 @@ c     Womersley profile below
 c-----------------------------------------------------------------------
       function womer(radius,time)
 c
+       real radius, time
        integer icalld
        save    icalld
        data    icalld /0/
@@ -1114,9 +1122,15 @@ c
          close(81)
        endif
 c
-       qunits=1000000.
+       ncoeff = 20
+       radread = 0.004
+       vis = 0.0035
+       rho = 1060.0
+       qmean = 0.2
+       freqbpm = 60.
        qscale=-8.*vis/pi/(radread**4)/1000./60.
        cmean=-qscale*qmean
+c      write(6,*) 'visrho:',vis,rho, qscale, qmean
 c
        do 40 i=1,ncoeff
          ccoeff(i)=cmplx(Acoeff(i),-Bcoeff(i))
@@ -1132,10 +1146,13 @@ c      write(6,*) 'velocity:',velocity,cmean,radius,radread
        zero=0.0
 c
        do 100 k=1,ncoeff
-         alpha(K)=radread*sqrt(float(k)*omega*rho/vis)
+         temp = float(k)*omega*rho/vis
+c        write(6,*)radread,temp
+         alpha(K)=radread*sqrt(temp)
          alph=alpha(k)
          call j0j1(alph,bessela,besselb,besselc,besseld,itnum)
 c        if (itnum.gt.100) write(61,*)alph,itnum
+
          aj1(k)=cmplx(besselc,besseld)
          aj0(k)=cmplx(bessela,besselb)
          qc1=-zivalue+2.*aj1(k)/alph*sq/aj0(k)
@@ -1145,8 +1162,6 @@ c        if (itnum.gt.100) write(61,*)alph,itnum
 c
        period = 60./freqbpm 
        theta=time/period*360.
-c      write(61,*)'time  theta  raidus  U    V     W  steady value is: ',velocity
-c
        do 120 k=1,ncoeff
          alph=alpha(k)
          omegat=float(k)*omega*time
@@ -1164,7 +1179,7 @@ c
        v = 0
        w = velocity
        womer = w
-c      write(61,1200)time,theta,radius,U,V,W
+c      write(6,1200)time,theta,radius,U,V,W
  1200  format( f8.6,2x,f5.1,2x,5(f11.8,2x) )
  1201  format( 8(f11.8,2x) )
 c
@@ -1299,7 +1314,6 @@ c
       common /womers/ rj(0:kn),uj(0:kn),ujr(0:kn),ujrr(0:kn)
 c
       time_womer = time + 0.5  !  .5 second shift  (See p. 37 S. Lee Thesis)
-      time_womer = 0.1
 c
       dr = 1./kn
       do j=0,kn

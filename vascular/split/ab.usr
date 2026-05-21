@@ -98,7 +98,7 @@ c
 
       rq  = 1.5
       uin = 0.
-c     call turb_outflow(d,m1,rq,uin)
+      call turb_outflow(d,m1,rq,uin)
 
       ifdivf = .false.    !  Set nontrivial divergence for outflow ICA bc.
       if (istep.gt.iostep) ifxyo = .false.  ! No geometry output after .fld01
@@ -150,6 +150,7 @@ c
 c     This is the bc for the carotid
 c
       lsteady = .true.
+      lsteady = .false.
       ie = gllel(ieg)
       if (lsteady) then
         xx = x-cgx0
@@ -161,14 +162,14 @@ c
         uz = -unz(ix,iy,iface,ie) * um
         temp= 1. + uz/vmax0
       else
-        call set_womer
+c       call set_womer
         xx = x-cgx0
         yy = y-cgy0
         zz = z-cgz0
         rt = xx*xx + yy*yy + zz*zz
         rr = rt/(rad0*rad0)
         if (rr.gt.0) rr = sqrt(rr)
-        uwom = womer(rr, 0.1)
+        uwom = womer(rr, time/2.0) + 0.1
 c
         tau   = 0.5
         if (time.lt.tau) then
@@ -260,7 +261,7 @@ c-----------------------------------------------------------------------
             endif
          enddo 
       enddo
-      do ipass=1,10
+      do ipass=1,50
          call match_normal
          call geom_reset(2)
          if (nid.eq.0) write(6,*) 'CAR: loop usrdat2 match',ipass
@@ -1100,8 +1101,10 @@ c
        integer icalld
        save    icalld
        data    icalld /0/
+
        real    acoeff(100),bcoeff(100),alpha(100)
-       complex ccoeff(100),aj1(100),aj0(100),qc1,qc2,ae,ayj0,zivalue,sq
+       complex ccoeff,aj1(100),aj0(100),qc1,qc2,ae,ayj0,zivalue,sq
+       common /womers_coeff/ ccoeff(100)
 c
        one = 1.
        pi  = 4.*atan(one)
@@ -1110,18 +1113,24 @@ c      Results are in m/s
 c
 c      All values are in mks units, except for Q, which is in liters/min.
 c
-       if (icalld.eq.0) then
+c      if (icalld.eq.0) then
          icalld=1
          open(unit=81,file='cl.fft')
          read(81,*)jmax,imax,start,end,vis,rho,radread,freqbpm,womp
-         write(6,*)'  CAR:Reading fft info'
+c        write(6,*)'  CAR:Reading fft info'
          read(81,*)itype,ncoeff,qmean
          do 10 i=1,ncoeff
            read(81,*)Acoeff(I),Bcoeff(I)
   10     continue
          close(81)
-       endif
 c
+c      write(6,*) 'visrho:',vis,rho, qscale, qmean
+c
+       do 40 i=1,ncoeff
+         ccoeff(i)=cmplx(Acoeff(i),-Bcoeff(i))
+ 40    continue
+c      endif
+
        ncoeff = 20
        radread = 0.004
        vis = 0.0035
@@ -1129,12 +1138,7 @@ c
        qmean = 0.2
        freqbpm = 60.
        qscale=-8.*vis/pi/(radread**4)/1000./60.
-       cmean=-qscale*qmean
-c      write(6,*) 'visrho:',vis,rho, qscale, qmean
-c
-       do 40 i=1,ncoeff
-         ccoeff(i)=cmplx(Acoeff(i),-Bcoeff(i))
- 40    continue
+       cmean=-qscale*qmean/1000.0
 c
        velocity =-cmean*radread*radread/4.0/vis*(radius**2-1.)
 c      write(6,*) 'velocity:',velocity,cmean,radius,radread
@@ -1147,7 +1151,6 @@ c      write(6,*) 'velocity:',velocity,cmean,radius,radread
 c
        do 100 k=1,ncoeff
          temp = float(k)*omega*rho/vis
-c        write(6,*)radread,temp
          alpha(K)=radread*sqrt(temp)
          alph=alpha(k)
          call j0j1(alph,bessela,besselb,besselc,besseld,itnum)
@@ -1178,6 +1181,7 @@ c
        u = 0
        v = 0
        w = velocity
+c      write(6,*) 'w' , velocity
        womer = w
 c      write(6,1200)time,theta,radius,U,V,W
  1200  format( f8.6,2x,f5.1,2x,5(f11.8,2x) )

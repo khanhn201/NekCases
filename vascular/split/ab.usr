@@ -45,7 +45,7 @@ c    $    write(6,1) istep,' udiff:',udiff,utrans,ramp0
 c-----------------------------------------------------------------------
       function ramp_to_zero (time,tau)
       ramp_to_zero = 0.
-      ramp_to_zero = 1.0*exp(-time/tau)
+c     ramp_to_zero = 1.0*exp(-time/tau)
       return
 c
       if (time.lt.0) then
@@ -169,15 +169,8 @@ c       call set_womer
         rt = xx*xx + yy*yy + zz*zz
         rr = rt/(rad0*rad0)
         if (rr.gt.0) rr = sqrt(rr)
-        uwom = womer(rr, time/2.0) + 0.1
-c
-        tau   = 0.5
-        if (time.lt.tau) then
-           ramp0 = ramp_to_zero(time,tau)
-           ramp1 = 1.-ramp0**6
-           uwom  = uwom * (0.05 + 0.95*ramp1)
-        endif
-c
+        uwom = womer(rr, time)
+
         ux   = -unx(ix,iy,iface,ie) * uwom   ! NOTE:  You must pay attention
         uy   = -uny(ix,iy,iface,ie) * uwom   !        to which boundary (5 or 6)
         uz   = -unz(ix,iy,iface,ie) * uwom   !        has the " v " BC.
@@ -268,6 +261,11 @@ c-----------------------------------------------------------------------
       enddo
       write(6,*) nid,'CAR: leave usrdat2 match'
 
+      ntot = lx1*ly1*lz1*nelv
+      scale = 1.0/4.0  ! Scale the mesh so that the radius is 1.0
+      call cmult(xm1, scale, ntot)
+      call cmult(ym1, scale, ntot)
+      call cmult(zm1, scale, ntot)
 
       return
       end
@@ -1135,7 +1133,7 @@ c      endif
        radread = 0.004
        vis = 0.0035
        rho = 1060.0
-       qmean = 0.2
+       qmean = 0.25
        freqbpm = 60.
        qscale=-8.*vis/pi/(radread**4)/1000./60.
        cmean=-qscale*qmean/1000.0

@@ -1,8 +1,8 @@
 [GENERAL]
-numSteps = 1000
-dt = 5e-3
+numSteps = 50000
+dt = 2e-4
 # timeStepper = tombo2
-writeInterval = 10
+writeInterval = 50
 
 filtering = hpfrt
 filterModes = 2

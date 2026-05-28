@@ -19,3 +19,6 @@ residualTol = 1e-8
 residualTol = 1e-8
 density = 1.0
 viscosity = 4/500
+
+[TEMPERATURE]
+solver = none

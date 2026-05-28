@@ -96,6 +96,11 @@ c
       common /myoutflow/ d(lx1,ly1,lz1,lelt),m1(lx1*ly1*lz1,lelt)
       real m1
 
+
+      ifpsco(1)=.true.
+      ifto=.true.
+      call lambda2(t(1,1,1,1,1)) ! Put lambda2 --> passive scalar 1
+
       rq  = 1.5
       uin = 0.
       call turb_outflow(d,m1,rq,uin)
@@ -254,11 +259,11 @@ c-----------------------------------------------------------------------
             endif
          enddo 
       enddo
-      do ipass=1,50
-         call match_normal
-         call geom_reset(2)
-         if (nid.eq.0) write(6,*) 'CAR: loop usrdat2 match',ipass
-      enddo
+c     do ipass=1,50
+c        call match_normal
+c        call geom_reset(2)
+c        if (nid.eq.0) write(6,*) 'CAR: loop usrdat2 match',ipass
+c     enddo
       write(6,*) nid,'CAR: leave usrdat2 match'
 
       ntot = lx1*ly1*lz1*nelv

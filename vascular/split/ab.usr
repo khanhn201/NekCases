@@ -28,7 +28,7 @@ c                       (2) = dynamic viscosity
 c                      (30) = 1.   (in order to force calling this routine)
 c
       density   = 1.0
-      viscosity = 4.0/500.0
+      viscosity = 1.0/500.0
  
       tau    = 0.5
       ramp0  = ramp_to_zero(time,tau)
@@ -1141,7 +1141,7 @@ c      endif
        qmean = 0.25
        freqbpm = 60.
        qscale=-8.*vis/pi/(radread**4)/1000./60.
-       cmean=-qscale*qmean/1000.0
+       cmean=-qscale*qmean
 c
        velocity =-cmean*radread*radread/4.0/vis*(radius**2-1.)
 c      write(6,*) 'velocity:',velocity,cmean,radius,radread

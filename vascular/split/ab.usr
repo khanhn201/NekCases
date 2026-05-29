@@ -27,13 +27,14 @@ c     Be sure that param(1) = density
 c                       (2) = dynamic viscosity
 c                      (30) = 1.   (in order to force calling this routine)
 c
-c     density   = 1.0
-c     viscosity = 1.0/500.0
-c
-c     tau    = 0.5
-c     ramp0  = ramp_to_zero(time,tau)
-c     UDIFF  = viscosity * ( 1. +  5000.*ramp0 )
-c     UTRANS = density
+      param(2) = 1.0/2000.0
+      density   = 1.0
+      viscosity = param(2)
+ 
+      tau    = 0.5
+      ramp0  = ramp_to_zero(time,tau)
+      UDIFF  = viscosity * ( 1. +  5000.*ramp0 )
+      UTRANS = density
 c
 c     if (nid.eq.0)  
 c    $    write(6,1) istep,' udiff:',udiff,utrans,ramp0
@@ -44,9 +45,9 @@ c    $    write(6,1) istep,' udiff:',udiff,utrans,ramp0
       end
 c-----------------------------------------------------------------------
       function ramp_to_zero (time,tau)
-      ramp_to_zero = 0.
+c     ramp_to_zero = 0.
 c     ramp_to_zero = 1.0*exp(-time/tau)
-      return
+c     return
 c
       if (time.lt.0) then
          ramp_to_zero = 1.0
@@ -167,7 +168,7 @@ c
         uz = -unz(ix,iy,iface,ie) * um
         temp= 1. + uz/vmax0
       else
-        time_womer = time*4.85         ! dimensional time
+        time_womer = 0.6+ time*(0.008/0.083)         ! dimensional time
         call set_womer(time_womer)
         xx = x-cgx0
         yy = y-cgy0
@@ -800,6 +801,7 @@ c
       call cmult(dv3,scale,ntot1)
 c
       intype = -1
+      call cfill    (vdiff,param(2),ntot1)       ! put target viscosity
       call sethlm   (h1,h2,intype)
       call ophx     (rw1,rw2,rw3,dv1,dv2,dv3,h1,h2)
       call ophinv   (dv1,dv2,dv3,rw1,rw2,rw3,h1,h2,tolhv,nmxh)
@@ -1042,6 +1044,7 @@ C     Compute velocity
 c     if (ifexplvis) call split_vis ! split viscosity into exp/imp part
 
       intype = -1
+      call cfill    (vdiff,param(2),ntot1)       ! put target viscosity
       call sethlm   (h1,h2,intype)
       call ophinv   (vxc,vyc,vzc,rw1,rw2,rw3,h1,h2,tolhv,nmxh)
       call opadd2   (vxc,vyc,vzc,dv1,dv2,dv3)

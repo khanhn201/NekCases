@@ -31,7 +31,7 @@ c
       density   = 1.0
       viscosity = param(2)
  
-      tau    = 0.5
+      tau    = 0.05
       ramp0  = ramp_to_zero(time,tau)
       UDIFF  = viscosity * ( 1. +  5000.*ramp0 )
       UTRANS = density
@@ -580,7 +580,7 @@ c
 c     total_flux    = flx(1)+flx(2)       ! 8/3/02, pff.
       total_flux    = -flx(3)             ! flx(1) is messed up because of
       flx1          = -(flx(2)+flx(3))    ! special outflow bc for turbulence
-      tau           = 0.5          ! Ramp-up flux adjust over t=.075--.125
+      tau           = 0.05          ! Ramp-up flux adjust over t=.075--.125
 c
       flux2_desired = param(56)*total_flux
       dflux2 = ( flux2_desired-flx(2) ) * (1.-ramp_to_zero(time,tau))

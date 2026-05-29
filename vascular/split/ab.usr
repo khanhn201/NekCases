@@ -1107,7 +1107,7 @@ c
        save    icalld
        data    icalld /0/
 
-       real    acoeff(100),bcoeff(100),alpha(100)
+       real    acoeff(100),bcoeff(100),alpha(100), cccoeff(100)
        complex ccoeff,aj1(100),aj0(100),qc1,qc2,ae,ayj0,zivalue,sq
        common /womers_coeff/ ccoeff(100)
 c
@@ -1118,11 +1118,11 @@ c      Results are in m/s
 c
 c      All values are in mks units, except for Q, which is in liters/min.
 c
-c      if (icalld.eq.0) then
+       if (icalld.eq.0) then
          icalld=1
          open(unit=81,file='cl.fft')
          read(81,*)jmax,imax,start,end,vis,rho,radread,freqbpm,womp
-c        write(6,*)'  CAR:Reading fft info'
+         write(6,*)'  CAR:Reading fft info'
          read(81,*)itype,ncoeff,qmean
          do 10 i=1,ncoeff
            read(81,*)Acoeff(I),Bcoeff(I)
@@ -1134,7 +1134,7 @@ c
        do 40 i=1,ncoeff
          ccoeff(i)=cmplx(Acoeff(i),-Bcoeff(i))
  40    continue
-c      endif
+       endif
 
        ncoeff = 20
        radread = 0.004
@@ -1165,7 +1165,7 @@ c        if (itnum.gt.100) write(61,*)alph,itnum
          aj0(k)=cmplx(bessela,besselb)
          qc1=-zivalue+2.*aj1(k)/alph*sq/aj0(k)
          qc2=cmplx(pi*radread**4/alph**2/vis*1000.*60.,zero)
-         ccoeff(k)=ccoeff(k)/qc1/qc2
+         cccoeff(k)=ccoeff(k)/qc1/qc2
  100   continue
 c
        period = 60./freqbpm 
@@ -1173,7 +1173,7 @@ c
        do 120 k=1,ncoeff
          alph=alpha(k)
          omegat=float(k)*omega*time
-         ae=ccoeff(k)*cmplx(cos(omegat),sin(omegat))
+         ae=cccoeff(k)*cmplx(cos(omegat),sin(omegat))
          ahere=alpha(k)*radius
          call j0j1(ahere,a1,a2,d1,d2,itnum)
          ayj1=cmplx(d1,d2)

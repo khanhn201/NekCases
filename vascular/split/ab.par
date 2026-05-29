@@ -1,6 +1,6 @@
 [GENERAL]
 numSteps = 50000
-dt = 5e-4
+dt = 2e-4
 # timeStepper = tombo2
 writeInterval = 10
 

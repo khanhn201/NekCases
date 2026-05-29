@@ -27,14 +27,14 @@ c     Be sure that param(1) = density
 c                       (2) = dynamic viscosity
 c                      (30) = 1.   (in order to force calling this routine)
 c
-      density   = 1.0
-      viscosity = 1.0/500.0
- 
-      tau    = 0.5
-      ramp0  = ramp_to_zero(time,tau)
-      UDIFF  = viscosity * ( 1. +  5000.*ramp0 )
-      UTRANS = density
- 
+c     density   = 1.0
+c     viscosity = 1.0/500.0
+c
+c     tau    = 0.5
+c     ramp0  = ramp_to_zero(time,tau)
+c     UDIFF  = viscosity * ( 1. +  5000.*ramp0 )
+c     UTRANS = density
+c
 c     if (nid.eq.0)  
 c    $    write(6,1) istep,' udiff:',udiff,utrans,ramp0
     1 format(i8,a7,1p3e15.5)
@@ -167,14 +167,18 @@ c
         uz = -unz(ix,iy,iface,ie) * um
         temp= 1. + uz/vmax0
       else
-c       call set_womer
+        time_womer = time*4.85         ! dimensional time
+        call set_womer(time_womer)
         xx = x-cgx0
         yy = y-cgy0
         zz = z-cgz0
         rt = xx*xx + yy*yy + zz*zz
         rr = rt/(rad0*rad0)
         if (rr.gt.0) rr = sqrt(rr)
-        uwom = womer(rr, time)
+c       uwom = womer(rr, time)
+        uwom = eval_womer(rr)
+        uwom = uwom/0.083 ! dimensionless velocity
+
 
         ux   = -unx(ix,iy,iface,ie) * uwom   ! NOTE:  You must pay attention
         uy   = -uny(ix,iy,iface,ie) * uwom   !        to which boundary (5 or 6)
@@ -267,7 +271,7 @@ c     enddo
       write(6,*) nid,'CAR: leave usrdat2 match'
 
       ntot = lx1*ly1*lz1*nelv
-      scale = 1.0/4.0  ! Scale the mesh so that the radius is 1.0
+      scale = 1.0/8.0  ! Scale the mesh so that the diameter is 1.0
       call cmult(xm1, scale, ntot)
       call cmult(ym1, scale, ntot)
       call cmult(zm1, scale, ntot)
@@ -796,7 +800,6 @@ c
       call cmult(dv3,scale,ntot1)
 c
       intype = -1
-c     call cfill    (vdiff,4.0/500.0,ntot1)       ! put target viscosity
       call sethlm   (h1,h2,intype)
       call ophx     (rw1,rw2,rw3,dv1,dv2,dv3,h1,h2)
       call ophinv   (dv1,dv2,dv3,rw1,rw2,rw3,h1,h2,tolhv,nmxh)
@@ -972,7 +975,7 @@ c
       enddo
       dvmax = glmax(dvmax,1)
       dvmax = sqrt (dvmax)
-      scale = 0.1/dvmax
+      scale = 1.0/dvmax
       call cmult(dv1,scale,ntot1)
       call cmult(dv2,scale,ntot1)
       call cmult(dv3,scale,ntot1)
@@ -1031,7 +1034,6 @@ c     Compute pressure
       call ortho    (prc)
 
 C     Compute velocity
-c     call cfill    (vdiff,4.0/500.0,ntot1)       ! put target viscosity
 
       call opgrad   (rw1,rw2,rw3,prc)
       if (ifaxis) call col2 (resv2,omask,n)
@@ -1309,7 +1311,7 @@ C
       return
       end
 c-----------------------------------------------------------------------
-      subroutine set_womer
+      subroutine set_womer(time_womer)
 c
 c     Evaluate Womersely profile at several knot points in r, and set
 c     up a spline along these points.
@@ -1319,8 +1321,6 @@ c
 c
       parameter (kn=20)
       common /womers/ rj(0:kn),uj(0:kn),ujr(0:kn),ujrr(0:kn)
-c
-      time_womer = time + 0.5  !  .5 second shift  (See p. 37 S. Lee Thesis)
 c
       dr = 1./kn
       do j=0,kn

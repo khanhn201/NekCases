@@ -25,7 +25,7 @@ uu = interp1(t, u, tu, 'spline');
 % Subtract mean flow rate
 T = tu(end) - tu(1);
 umean = trapz(tu, uu)/T;
-uu = uu/umean*Qvol/Area;
+% uu = uu/umean*Qvol/Area;
 
 % uu = uu + Qvol/Area;
 

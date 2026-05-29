@@ -28,7 +28,7 @@ c                       (2) = dynamic viscosity
 c                      (30) = 1.   (in order to force calling this routine)
 c
       param(2) = 1.0/2000.0
-      density   = 1.0
+      density   = 1050.0
       viscosity = param(2)
  
       tau    = 0.05
@@ -169,6 +169,7 @@ c
         temp= 1. + uz/vmax0
       else
         time_womer = 0.6+ time*(0.008/0.083)         ! dimensional time
+        time_womer = 0.6 + time
         call set_womer(time_womer)
         xx = x-cgx0
         yy = y-cgy0
@@ -178,7 +179,7 @@ c
         if (rr.gt.0) rr = sqrt(rr)
 c       uwom = womer(rr, time)
         uwom = eval_womer(rr)
-        uwom = uwom/0.083 ! dimensionless velocity
+c       uwom = uwom/0.083 ! dimensionless velocity
 
 
         ux   = -unx(ix,iy,iface,ie) * uwom   ! NOTE:  You must pay attention
@@ -273,6 +274,7 @@ c     enddo
 
       ntot = lx1*ly1*lz1*nelv
       scale = 1.0/8.0  ! Scale the mesh so that the diameter is 1.0
+      scale = 1.0/1000.0
       call cmult(xm1, scale, ntot)
       call cmult(ym1, scale, ntot)
       call cmult(zm1, scale, ntot)
@@ -1142,7 +1144,7 @@ c
        ncoeff = 20
        radread = 0.004
        vis = 0.0035
-       rho = 1060.0
+       rho = 1050.0
        qmean = 0.25
        freqbpm = 60.
        qscale=-8.*vis/pi/(radread**4)/1000./60.

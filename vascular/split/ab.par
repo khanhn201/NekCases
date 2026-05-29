@@ -1,12 +1,12 @@
 [GENERAL]
 numSteps = 50000
-dt = 5e-4
+dt = 1e-4
 # timeStepper = tombo2
-writeInterval = 20
+writeInterval = 100
 
 filtering = hpfrt
 filterModes = 2
-filterWeight = 5.0
+filterWeight = 10.0
 
 [PROBLEMTYPE]
 # equation = navierStokes+variableViscosity
@@ -17,8 +17,8 @@ residualTol = 1e-6
 
 [VELOCITY]
 residualTol = 1e-8
-density = 1.0
-viscosity = -2000.0
+density = 1050.0
+viscosity = 0.0035
 
 [TEMPERATURE]
 solver = none

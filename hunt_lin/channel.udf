@@ -93,14 +93,12 @@ void UDF_ExecuteStep(double time, int tstep)
   dfloat gamma_r = 1.1380198826702480e-03;
 
   poolDeviceMemory<dfloat> o_vy2(mesh->Nlocal);
-
   platform->linAlg->axmyz(
       mesh->Nlocal,
       1.0,
-      fluid->o_U + fluid->fieldOffset, // vy
-      fluid->o_U + fluid->fieldOffset, // vy
-      o_vy2);                          // vy^2
-
+      fluid->o_U + fluid->fieldOffset,
+      fluid->o_U + fluid->fieldOffset,
+      o_vy2);
   dfloat vy2 =
       platform->linAlg->innerProd(
           mesh->Nlocal,

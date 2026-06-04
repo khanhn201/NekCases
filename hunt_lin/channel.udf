@@ -90,7 +90,8 @@ void UDF_ExecuteStep(double time, int tstep)
   auto &fluid = nrs->fluid;
   auto &mhdIndless = nrs->mhdIndless;
   auto mesh = fluid->mesh;
-  dfloat gamma_r = 1.1380198826702480e-03;
+  dfloat gamma_r = 1.0;
+  platform->par->extract("casedata", "gamma_r", gamma_r);
 
   poolDeviceMemory<dfloat> o_vy2(mesh->Nlocal);
   platform->linAlg->axmyz(
@@ -136,7 +137,7 @@ void UDF_ExecuteStep(double time, int tstep)
 
   occa::memory o_Phi = mhdIndless->o_Phi;
 
-  if (tstep < 100) {
+  if (tstep < 10) {
     nrs->copyToNek(time, tstep);
     nek::userchk();
     nrs->copyFromNek(time);

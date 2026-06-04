@@ -1,0 +1,49 @@
+userSections = CASEDATA
+
+[GENERAL]
+polynomialOrder = 7
+timeStepper = tombo3
+dt = 1e-3
+numSteps = 2000
+checkpointInterval = 100
+scalars = temperature
+
+#[MESH]
+#hRefine=2
+
+[FLUID PRESSURE]
+residualTol = 1e-12
+initialGuess = projectionAconj+nVector=5
+
+[FLUID VELOCITY]
+#solver = pcg
+boundaryTypeMap = w,w
+density = 1.0
+viscosity = 1.0/2100.0
+residualTol = 1e-12
+initialGuess = projectionAconj+nVector=5
+
+[SCALAR TEMPERATURE]
+solver = none
+
+[MHD INDUCTIONLESS]
+#solver = none # frozen phi
+boundaryTypeMap = I,t
+
+#implicitUxBxB = yes # (WIP)
+lorentzCoeff = 1 # interaction number
+sigma = 0.0476190476
+sigmaSolid = 1e30 # pefectly conducting hartmann walls
+
+bx = 0.0
+by = 1.0
+bz = 0.0
+
+residualTol = 1e-12
+#pMGSchedule = p=7+degree=3,p=5+degree=3,p=3+degree=3,p=1,p=3+degree=3,p=5+degree=3,p=7+degree=3
+#smootherType = jacobi + FourthOptChebyshev
+#coarseGridDiscretization = fem+galerkin
+
+[CASEDATA]
+ioChk = 500
+fz = 0.0171450164

@@ -1,0 +1,156 @@
+//
+// nekRS User Defined File
+//
+
+#ifdef __okl__
+
+void udfDirichlet(bcData *bc)
+{
+  if (isField("mhd inductionless")) {
+    bc->sScalar = 0.0;
+  }
+}
+
+#endif
+
+void userf(double time)
+{
+  auto &fluid = nrs->fluid;
+  auto mesh = fluid->mesh;
+
+  dfloat fz = 1.0;
+  platform->par->extract("casedata", "fz", fz); 
+  auto o_FUz = fluid->o_EXT.slice(2 * fluid->fieldOffset, fluid->fieldOffset);
+  platform->linAlg->fill(mesh->Nlocal, fz, o_FUz);
+}
+
+void UDF_Setup0(MPI_Comm comm, setupAide &options)
+{
+
+}
+
+void UDF_Setup()
+{
+  nrs->userSource = &userf;
+
+  auto &fluid = nrs->fluid;
+  auto &mhdIndless = nrs->mhdIndless;
+
+  if (platform->options.getArgs("RESTART FILE NAME").empty()) { // IC + applied
+    { // velocity
+      auto mesh = fluid->mesh;
+      auto [x, y, z] = mesh->xyzHost(); // x[n], y[n], z[n]
+      std::vector<dfloat> U(mesh->dim * fluid->fieldOffset, 0.0);
+      std::vector<dfloat> P(fluid->fieldOffset, 0.0);
+
+      for (int n = 0; n < mesh->Nlocal; n++) {
+        U[n + 0 * fluid->fieldOffset] = 0.0;
+        U[n + 1 * fluid->fieldOffset] = 0.0;
+        U[n + 2 * fluid->fieldOffset] = 0.0;
+        P[n] = 0.0;
+      }
+      fluid->o_U.copyFrom(U.data(), U.size());
+      fluid->o_P.copyFrom(P.data(), P.size());
+    }
+    if (nrs->mhdIndless) { // phi
+      auto mesh = mhdIndless->mesh;
+      auto [x, y, z] = mesh->xyzHost(); // x[n], y[n], z[n]
+      std::vector<dfloat> Phi(mhdIndless->fieldOffset, 0.0);
+      for (int n = 0; n < mesh->Nlocal; n++) {
+        Phi[n] = 0.0;
+      }
+      mhdIndless->o_Phi.copyFrom(Phi.data(), Phi.size());
+    }
+  }
+
+  if (nrs->mhdIndless) { // applied B filed
+    auto mesh = mhdIndless->mesh;
+    auto [x, y, z] = mesh->xyzHost(); // x[n], y[n], z[n]
+    std::vector<dfloat> B(3 * mhdIndless->fieldOffset, 0.0);
+
+    dfloat b0y = 0.0;
+    platform->options.getArgs("MHD MAGNETIC BY", b0y);
+    for (int n = 0; n < mesh->Nlocal; n++) {
+      B[n + 0 * mhdIndless->fieldOffset] = 0.0;
+      B[n + 1 * mhdIndless->fieldOffset] = b0y;
+      B[n + 2 * mhdIndless->fieldOffset] = 0.0;
+    }
+    mhdIndless->o_B.copyFrom(B.data(), B.size());
+  }
+}
+
+dfloat vy_0 = 1.0;
+dfloat vy_last = 1.0;
+dfloat time_start = 0.0;
+
+void UDF_ExecuteStep(double time, int tstep)
+{
+  if (!nrs->timeStepConverged) return;
+
+  auto &fluid = nrs->fluid;
+  auto &mhdIndless = nrs->mhdIndless;
+  auto mesh = fluid->mesh;
+  dfloat gamma_r = 1.1380198826702480e-03;
+
+  poolDeviceMemory<dfloat> o_vy2(mesh->Nlocal);
+
+  platform->linAlg->axmyz(
+      mesh->Nlocal,
+      1.0,
+      fluid->o_U + fluid->fieldOffset, // vy
+      fluid->o_U + fluid->fieldOffset, // vy
+      o_vy2);                          // vy^2
+
+  dfloat vy2 =
+      platform->linAlg->innerProd(
+          mesh->Nlocal,
+          o_vy2,
+          mesh->o_Jw,
+          platform->comm.mpiComm(),
+          0) / mesh->volume;
+  if (vy2 >= 0.0) vy2 = sqrt(vy2);
+
+  dfloat vy2r = vy2/vy_0;
+  dfloat vy2l = vy2/vy_last;
+  dfloat gr = log(vy2r)/(time-time_start);
+  dfloat gl = log(vy2l)/nrs->dt[0];
+  dfloat ge = abs(gr - gamma_r)/gamma_r;
+  dfloat gle = abs(gl - gamma_r)/gamma_r;
+
+  if (platform->comm.mpiRank() == 0) {
+  std::cout << "tstep=" << tstep
+            << " time=" << time
+            << " vy2=" << vy2
+            << " gl=" << gl
+            << " gr=" << gr
+            << " gle=" << gle
+            << " ge=" << ge
+            << " AMP"
+            << std::endl;
+  }
+  if (time < 0.1) {
+      vy_0 = vy2;
+      time_start = time;
+  }
+  vy_last = vy2;
+
+
+
+  occa::memory o_Phi = mhdIndless->o_Phi;
+
+  if (tstep < 100) {
+    nrs->copyToNek(time, tstep);
+    nek::userchk();
+    nrs->copyFromNek(time);
+
+    auto o_temp = nrs->scalar->o_solution("temperature");
+    o_Phi.copyFrom(o_temp, mesh->Nlocal);
+  }
+
+  auto ifpost = [](int tstep) {
+    int ioChk = 100; // freq for postprocessing
+    platform->par->extract("casedata", "iochk", ioChk); 
+    return (ioChk>0 && tstep>0 && (tstep % ioChk == 0)) ? true : false;
+  };
+
+}

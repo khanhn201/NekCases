@@ -22,8 +22,8 @@ c-----------------------------------------------------------------------
       include 'SIZE'
       include 'TOTAL'
 
-      common /initu/   ub(lx1,ly1,lz1,lelt),vb(lx1,ly1,lz1,lelt),
-     $                 wb(lx1,ly1,lz1,lelt),phib(lx1,ly1,lz1,lelt) 
+      common /initu/   ub(lx1,ly1,lz1,lelv),vb(lx1,ly1,lz1,lelv),
+     $                 wb(lx1,ly1,lz1,lelv),phib(lx1,ly1,lz1,lelv) 
       real ub, vb, wb, phib
 
       
@@ -34,7 +34,7 @@ c-----------------------------------------------------------------------
       call copy(vx(1,1,1,1),ub(1,1,1,1),ntot)
       call copy(vy(1,1,1,1),vb(1,1,1,1),ntot)
       call copy(vz(1,1,1,1),wb(1,1,1,1),ntot)
-      call copy(t(1,1,1,1,1),phib(1,1,1,1),ntot)
+c     call copy(t(1,1,1,1,1),phib(1,1,1,1),ntot)
 
       return
       end
@@ -100,7 +100,7 @@ c-----------------------------------------------------------------------
       include 'SIZE'
       include 'TOTAL'
 
-      common /scrns/ ur(lx1,ly1,1000)  , ui(lx1,ly1,1000)  ,
+      common /peru/ ur(lx1,ly1,1000)  , ui(lx1,ly1,1000)  ,
      $               vr(lx1,ly1,1000)  , vi(lx1,ly1,1000)  ,
      $               wr(lx1,ly1,1000)  , wi(lx1,ly1,1000)  ,
      $               phir(lx1,ly1,1000), phii(lx1,ly1,1000)
@@ -208,10 +208,10 @@ c-----------------------------------------------------------------------
          ub(i,j,k,e) = epsamp*(ur(i,j,exy)*c - ui(i,j,exy)*s)
          vb(i,j,k,e) = epsamp*(vr(i,j,exy)*c - vi(i,j,exy)*s)
          wb(i,j,k,e) = epsamp*(wr(i,j,exy)*c - wi(i,j,exy)*s)
-         phib(i,j,k,e) = epsamp*(phir(i,j,exy)*c - phii(i,j,exy)*s)
+c        phib(i,j,k,e) = epsamp*(phir(i,j,exy)*c - phii(i,j,exy)*s)
 
          wb(i,j,k,e) = wb(i,j,k,e) + ubase(i,j,exy)
-         phib(i,j,k,e) = phib(i,j,k,e) + phibase(i,j,exy)
+c        phib(i,j,k,e) = phib(i,j,k,e) + phibase(i,j,exy)
       enddo
       enddo
       enddo

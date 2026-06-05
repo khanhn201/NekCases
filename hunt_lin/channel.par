@@ -6,7 +6,6 @@ timeStepper = tombo3
 dt = 1e-3
 numSteps = 2000
 checkpointInterval = 1000
-scalars = temperature
 
 #[MESH]
 #hRefine=2
@@ -22,9 +21,6 @@ density = 1.0
 viscosity = 1.0/2100.0
 residualTol = 1e-12
 initialGuess = projectionAconj+nVector=5
-
-[SCALAR TEMPERATURE]
-solver = none
 
 [MHD INDUCTIONLESS]
 #solver = none # frozen phi

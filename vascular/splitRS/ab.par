@@ -1,0 +1,29 @@
+[GENERAL]
+polynomialOrder = 5
+numSteps = 500000
+dt = 1e-4
+# timeStepper = tombo2
+writeInterval = 1000
+
+filtering = hpfrt
+filterModes = 2
+filterWeight = 10.0
+
+[PROBLEMTYPE]
+equation = navierStokes
+# variableProperties = yes
+# stressFormulation = yes
+
+[FLUID PRESSURE]
+residualTol = 1e-6
+residualProj = yes
+
+[FLUID VELOCITY]
+residualTol = 1e-8
+density = 1.0
+viscosity = -250
+solver=pcg+block
+boundaryTypeMap = zeroDirichlet, zeroNeumann, udfDirichlet, zeroNeumann
+
+[TEMPERATURE]
+solver = none

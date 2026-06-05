@@ -1,0 +1,156 @@
+C
+
+C  USER SPECIFIED ROUTINES: 
+C
+C     - boundary conditions 
+C     - initial conditions  
+C     - variable properties 
+C     - forcing function for fluid (f)
+C     - forcing function for passive scalar (q)
+C     - general purpose routine for checking errors etc.        
+C
+c-----------------------------------------------------------------------
+      subroutine useric (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userchk
+      include 'SIZE'
+      include 'TOTAL'
+
+      common /initu/   ub(lx1,ly1,lz1,lelv),vb(lx1,ly1,lz1,lelv),
+     $                 wb(lx1,ly1,lz1,lelv)
+      real ub, vb, wb
+
+      
+      ntot = lx1*ly1*lz1*nelv
+
+      ! Initialize with IC
+      call gen_pert_ic
+      call copy(vx(1,1,1,1),ub(1,1,1,1),ntot)
+      call copy(vy(1,1,1,1),vb(1,1,1,1),ntot)
+      call copy(vz(1,1,1,1),wb(1,1,1,1),ntot)
+
+      return
+      end
+
+cc-----------------------------------------------------------------------
+      subroutine usrdat   ! This routine to modify element vertices
+      include 'SIZE'      ! _before_ mesh is generated, which 
+      include 'TOTAL'     ! guarantees GLL mapping of mesh.
+
+      return
+      end
+
+c-----------------------------------------------------------------------
+      subroutine usrdat2()  ! This routine to modify mesh coordinates                                      
+      include 'SIZE'
+      include 'TOTAL'
+
+      real alpha, zlength
+      alpha = 1.0
+      zlength = 2*pi/alpha
+      call rescale_x (zm1,0.0,zlength)
+
+
+      ! reconstruct boundary tags 
+      do iel=1,nelv
+        do ifc=1,2*ndim
+c         if (cbc(ifc,iel,1) .eq. 'v  ') boundaryID(ifc,iel) = 1
+c         if (cbc(ifc,iel,1) .eq. 'O  ') boundaryID(ifc,iel) = 2
+           if (cbc(ifc,iel,1) .eq. 'W  ') boundaryID(ifc,iel) = 1
+        enddo
+        enddo
+  
+        do iel=1,nelt
+        do ifc=1,2*ndim
+           if (cbc(ifc,iel,2) .eq. 'I  ') boundaryIDt(ifc,iel) = 1
+c         if (cbc(ifc,iel,2) .eq. 'O  ') boundaryIDt(ifc,iel) = 2
+c         if (cbc(ifc,iel,2) .eq. 'I  ') boundaryIDt(ifc,iel) = 3
+        enddo
+        enddo
+    
+      return
+      end
+cc-----------------------------------------------------------------------
+      subroutine usrdat3
+      include 'SIZE'
+      include 'TOTAL'
+
+      return
+      end
+c----------------------------------------------------------------------- 
+      subroutine gen_pert_ic ! perturbation i.c.s
+      include 'SIZE'
+      include 'TOTAL'
+
+      common /peru/ ur(lx1,ly1,lz1,lelv)  , ui(lx1,ly1,lz1,lelv)  ,
+     $               vr(lx1,ly1,lz1,lelv)  , vi(lx1,ly1,lz1,lelv)  ,
+     $               wr(lx1,ly1,lz1,lelv)  , wi(lx1,ly1,lz1,lelv)
+      real ur, ui, vr, vi, wr, wi
+
+
+      common /initu/   ub(lx1,ly1,lz1,lelv),vb(lx1,ly1,lz1,lelv),
+     $                 wb(lx1,ly1,lz1,lelv)
+      real ub, vb, wb
+
+      common /baseu/   ubase(lx1,ly1,lz1,lelv)
+      real ubase
+
+
+      real epsamp, eps, alpha, gamma_r, gamma_i
+
+      integer e,eg,ex,ey,ez,nelxy,nelz,m,i,j,k,n
+      real x, y, z, c, s
+
+
+      eps = 1e-4
+
+      gamma_r = 2.9392e-03
+      gamma_i = -9.0300e-01
+      alpha = 1.0
+
+      n = nx1*ny1*nz1*nelv
+
+      call gfldr("u_base0.f00001")
+      call copy(ubase(1,1,1,1),vz(1,1,1,1),n)
+      call gfldr("u_real0.f00001")
+      call copy(ur(1,1,1,1),vx(1,1,1,1),n)
+      call copy(vr(1,1,1,1),vy(1,1,1,1),n)
+      call copy(wr(1,1,1,1),vz(1,1,1,1),n)
+      call gfldr("u_imag0.f00001")
+      call copy(ui(1,1,1,1),vx(1,1,1,1),n)
+      call copy(vi(1,1,1,1),vy(1,1,1,1),n)
+      call copy(wi(1,1,1,1),vz(1,1,1,1),n)
+
+      epsamp = eps*exp(gamma_r*time)
+
+      do e=1,nelv
+      do k=1,nz1
+      do j=1,ny1
+      do i=1,nx1
+         x  = xm1(i,j,k,e)
+         y  = ym1(i,j,k,e)
+         z  = zm1(i,j,k,e)
+         az = alpha*z + gamma_i*time
+
+         c  = cos(az)
+         s  = sin(az)
+
+         ub(i,j,k,e) = epsamp*(ur(i,j,k,e)*c - ui(i,j,k,e)*s)
+         vb(i,j,k,e) = epsamp*(vr(i,j,k,e)*c - vi(i,j,k,e)*s)
+         wb(i,j,k,e) = epsamp*(wr(i,j,k,e)*c - wi(i,j,k,e)*s)
+         wb(i,j,k,e) = wb(i,j,k,e) + ubase(i,j,k,e)
+      enddo
+      enddo
+      enddo
+      enddo
+
+      return
+      end
+c---------------------------------------------------------------------

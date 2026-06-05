@@ -1,0 +1,57 @@
+// nekRS User Defined File
+//
+#include <dirent.h>
+#include <fnmatch.h>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <iostream>
+#include <stdio.h>
+#include <stdlib.h>
+#include <mpi.h>
+
+
+#include "udf.hpp"
+
+
+
+#ifdef __okl__
+// Boundary conditions
+void udfDirichlet(bcData *bc)
+{
+      bc->uxFluid = -1.0/sqrt(2.0);
+      bc->uyFluid = 0.0;
+      bc->uzFluid = -1.0/sqrt(2.0);
+}
+
+#endif
+
+
+void UDF_LoadKernels(deviceKernelProperties& kernelInfo)
+{
+}
+
+void UDF_Setup0(MPI_Comm comm, setupAide &options)
+{
+}
+
+
+void userq(double time)
+{
+}
+
+
+void uservp(double time)
+{
+}
+
+void UDF_Setup()
+{
+}
+
+void UDF_ExecuteStep(double time, int tstep)
+{
+
+}
+
+

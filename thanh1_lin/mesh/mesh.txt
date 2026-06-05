@@ -1,0 +1,5 @@
+
+ fluid.box -> fluid.rea
+ solid.box -> solid.rea
+ pretex -> than1.rea -> choose 3 -> fluid.rea -> solid.rea 
+ 

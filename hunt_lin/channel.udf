@@ -137,13 +137,10 @@ void UDF_ExecuteStep(double time, int tstep)
 
   occa::memory o_Phi = mhdIndless->o_Phi;
 
-  if (tstep < 10) {
+  if (tstep < 200) {
     nrs->copyToNek(time, tstep);
     nek::userchk();
     nrs->copyFromNek(time);
-
-    // auto o_temp = nrs->scalar->o_solution("temperature");
-    // o_Phi.copyFrom(o_temp, mesh->Nlocal);
   }
 
   auto ifpost = [](int tstep) {

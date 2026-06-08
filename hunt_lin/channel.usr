@@ -51,20 +51,8 @@ c-----------------------------------------------------------------------
       include 'SIZE'
       include 'TOTAL'
 
-      integer e,f
-      real alpha, wk
-
-      alpha = 0.0
-      if (nid.eq.0) then
-         open(unit=98,file='u2.txt')
-         read(98,*)
-         read(98,*)
-         read(98,*)
-         read(98,*) alpha
-         close(98)
-      endif
-      call gop ( alpha ,  wk , '+  ', 1 )
-
+      real alpha, zlength
+      alpha = 0.8
       zlength = 2*pi/alpha
       call rescale_x (zm1,0.0,zlength)
 
@@ -100,92 +88,51 @@ c-----------------------------------------------------------------------
       include 'SIZE'
       include 'TOTAL'
 
-      common /peru/ ur(lx1,ly1,1000)  , ui(lx1,ly1,1000)  ,
-     $               vr(lx1,ly1,1000)  , vi(lx1,ly1,1000)  ,
-     $               wr(lx1,ly1,1000)  , wi(lx1,ly1,1000)  ,
-     $               phir(lx1,ly1,1000), phii(lx1,ly1,1000)
-      real ur, ui, vr, vi, wr, wi, phir, phii
+      common /peru/ ur(lx1,ly1,lz1,lelv)  , ui(lx1,ly1,lz1,lelv)  ,
+     $               vr(lx1,ly1,lz1,lelv)  , vi(lx1,ly1,lz1,lelv)  ,
+     $               wr(lx1,ly1,lz1,lelv)  , wi(lx1,ly1,lz1,lelv)
+      real ur, ui, vr, vi, wr, wi
 
 
-      common /scruz/ wk(lx1,ly1,1000)
-      real wk
-      integer iwk
+      common /initu/   ub(lx1,ly1,lz1,lelv),vb(lx1,ly1,lz1,lelv),
+     $                 wb(lx1,ly1,lz1,lelv)
+      real ub, vb, wb
 
-      common /initu/   ub(lx1,ly1,lz1,lelt),vb(lx1,ly1,lz1,lelt),
-     $                 wb(lx1,ly1,lz1,lelt),phib(lx1,ly1,lz1,lelt) 
-      real ub, vb, wb, phib
+      common /baseu/   ubase(lx1,ly1,lz1,lelv)
+      real ubase
 
-      common /baseu/   ubase(lx1,ly1,1000),
-     $                 phibase(lx1,ly1,1000) 
-      real ubase, phibase
-
-      real facc, Byy
 
       real epsamp, eps, alpha, gamma_r, gamma_i
 
       integer e,eg,ex,ey,ez,nelxy,nelz,m,i,j,k,n
       real x, y, z, c, s
 
-      real rho, mu, sigma
+      integer icalld
+      save    icalld
+      data    icalld  /0/
 
-      eps = 1e-5
-      nelz = 24
 
-      call rzero(ur,ly1*ly1*1000)
-      call rzero(ui,ly1*ly1*1000)
-      call rzero(vr,ly1*ly1*1000)
-      call rzero(vi,ly1*ly1*1000)
+      eps = 1e-3
 
-      nelxy = 0
-      m = 0
-      alpha = 0.0
-      gamma_i = 0.0
-      gamma_r = 0.0
-      if (nid.eq.0) then
-         open(unit=98,file='u2.txt')
-         read(98,*) nelxy
-         read(98,*) rho, mu, sigma
-         read(98,*) facc, Byy
-         read(98,*) alpha
-         read(98,*) gamma_r, gamma_i
-         m = nx1*ny1*nelxy*nelxy
-         do i=1,m
-            read(98,*) ur(i,1,1),ui(i,1,1),vr(i,1,1),vi(i,1,1),
-     $                 wr(i,1,1),wi(i,1,1),phir(i,1,1),phii(i,1,1)
-
-         enddo
-         close(98)
-
-         open(unit=98,file='ubase.txt')
-         read(98,*) nelxy
-         read(98,*) rho, mu, sigma
-         read(98,*) facc, Byy
-         read(98,*) alpha
-         read(98,*) gamma_r, gamma_i
-         m = nx1*ny1*nelxy*nelxy
-         do i=1,m
-            read(98,*) ubase(i,1,1),phibase(i,1,1)
-         enddo
-         close(98)
-      endif
-
-      call igop ( nelxy , iwk , '+  ', 1 )
-      call igop ( m , iwk , '+  ', 1 )
-      call gop ( alpha ,  wk , '+  ', 1 )
-      call gop ( gamma_i ,  wk , '+  ', 1 )
-      call gop ( gamma_r ,  wk , '+  ', 1 )
-      call gop ( ur , wk , '+  ', m )  ! gather over all procs
-      call gop ( ui , wk , '+  ', m )
-      call gop ( vr , wk , '+  ', m )
-      call gop ( vi , wk , '+  ', m )
-      call gop ( wr , wk , '+  ', m )
-      call gop ( wi , wk , '+  ', m )
-      call gop ( phir , wk , '+  ', m )
-      call gop ( phii , wk , '+  ', m )
-      call gop ( ubase , wk , '+  ', m )
-      call gop ( phibase , wk , '+  ', m )
+      gamma_r = 0.00113801988
+      gamma_i = - 0.60770946894
+      alpha = 0.8
 
       n = nx1*ny1*nz1*nelv
+
+      if (icalld.eq.0) then
+         icalld = 1
+         call gfldr("u_base0.f00001")
+         call copy(ubase(1,1,1,1),vz(1,1,1,1),n)
+         call gfldr("u_real0.f00001")
+         call copy(ur(1,1,1,1),vx(1,1,1,1),n)
+         call copy(vr(1,1,1,1),vy(1,1,1,1),n)
+         call copy(wr(1,1,1,1),vz(1,1,1,1),n)
+         call gfldr("u_imag0.f00001")
+         call copy(ui(1,1,1,1),vx(1,1,1,1),n)
+         call copy(vi(1,1,1,1),vy(1,1,1,1),n)
+         call copy(wi(1,1,1,1),vz(1,1,1,1),n)
+      endif
 
       epsamp = eps*exp(gamma_r*time)
 
@@ -200,18 +147,11 @@ c-----------------------------------------------------------------------
 
          c  = cos(az)
          s  = sin(az)
-         eg = lglel(e)
 
-         ! Velocity initialization
-         call get_exyz(ex,ey,ez,eg,nelxy,nelxy,nelz)
-         exy = ex + (ey-1)*nelxy
-         ub(i,j,k,e) = epsamp*(ur(i,j,exy)*c - ui(i,j,exy)*s)
-         vb(i,j,k,e) = epsamp*(vr(i,j,exy)*c - vi(i,j,exy)*s)
-         wb(i,j,k,e) = epsamp*(wr(i,j,exy)*c - wi(i,j,exy)*s)
-c        phib(i,j,k,e) = epsamp*(phir(i,j,exy)*c - phii(i,j,exy)*s)
-
-         wb(i,j,k,e) = wb(i,j,k,e) + ubase(i,j,exy)
-c        phib(i,j,k,e) = phib(i,j,k,e) + phibase(i,j,exy)
+         ub(i,j,k,e) = epsamp*(ur(i,j,k,e)*c - ui(i,j,k,e)*s)
+         vb(i,j,k,e) = epsamp*(vr(i,j,k,e)*c - vi(i,j,k,e)*s)
+         wb(i,j,k,e) = epsamp*(wr(i,j,k,e)*c - wi(i,j,k,e)*s)
+         wb(i,j,k,e) = wb(i,j,k,e) + ubase(i,j,k,e)
       enddo
       enddo
       enddo

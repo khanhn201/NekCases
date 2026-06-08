@@ -4,7 +4,7 @@ userSections = CASEDATA
 polynomialOrder = 9
 timeStepper = tombo3
 dt = 1e-3
-numSteps = 2000
+numSteps = 80000
 checkpointInterval = 1000
 
 #[MESH]

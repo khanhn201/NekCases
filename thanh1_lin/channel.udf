@@ -87,11 +87,6 @@ void UDF_ExecuteStep(double time, int tstep)
 {
   if (!nrs->timeStepConverged) return;
 
-  if (tstep < 20) {
-    nrs->copyToNek(time, tstep);
-    nek::userchk();
-    nrs->copyFromNek(time);
-  }
 
   auto &fluid = nrs->fluid;
   auto &mhdIndless = nrs->mhdIndless;
@@ -138,5 +133,13 @@ void UDF_ExecuteStep(double time, int tstep)
       time_start = time;
   }
   vy_last = vy2;
+
+
+
+  if (tstep < 20) {
+    nrs->copyToNek(time, tstep);
+    nek::userchk();
+    nrs->copyFromNek(time);
+  }
 }
 

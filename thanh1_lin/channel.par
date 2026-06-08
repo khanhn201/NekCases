@@ -38,5 +38,5 @@ coarseGridDiscretization = fem+galerkin
 
 [CASEDATA]
 iochk = 100
-fz = 0.014328
-gamma_r = 2.9392e-03
+fz = 0.014325690
+gamma_r = 0.00131231462

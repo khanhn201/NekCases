@@ -7,8 +7,8 @@ dt = 1e-3
 numSteps = 20000
 checkpointInterval = 1000
 
-#[MESH]
-#hRefine = 2
+[MESH]
+hRefine = 2
 
 [FLUID PRESSURE]
 residualTol = 1e-12
@@ -28,7 +28,7 @@ mesh = fluid+solid
 
 lorentzCoeff = 1 # interaction number
 sigma = 0.0225000000
-sigmaSolid =  0.011250
+sigmaSolid = 0.225000000
 
 bx = 0.0
 by = 1.0
@@ -42,5 +42,5 @@ residualTol = 1e-12
 
 [CASEDATA]
 iochk = 100
-fz = 0.00628554756
-gamma_r = 0.0110445769
+fz = 0.00878045258
+gamma_r = 0.00604853617

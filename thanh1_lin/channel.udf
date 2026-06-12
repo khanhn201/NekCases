@@ -98,8 +98,8 @@ void UDF_ExecuteStep(double time, int tstep)
   platform->linAlg->axmyz(
       mesh->Nlocal,
       1.0,
-      fluid->o_U + fluid->fieldOffset,
-      fluid->o_U + fluid->fieldOffset,
+      fluid->o_U + 1*fluid->fieldOffset,
+      fluid->o_U + 1*fluid->fieldOffset,
       o_vy2);
   dfloat vy2 =
       platform->linAlg->innerProd(
@@ -128,7 +128,8 @@ void UDF_ExecuteStep(double time, int tstep)
             << " AMP"
             << std::endl;
   }
-  if (time < 0.1) {
+//  if (time < 0.1) {
+  if (tstep < 200) {
       vy_0 = vy2;
       time_start = time;
   }
@@ -136,7 +137,7 @@ void UDF_ExecuteStep(double time, int tstep)
 
 
 
-  if (tstep < 100) {
+  if (tstep < 200) {
     nrs->copyToNek(time, tstep);
     nek::userchk();
     nrs->copyFromNek(time);

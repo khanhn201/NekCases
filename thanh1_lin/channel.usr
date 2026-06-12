@@ -109,24 +109,31 @@ c-----------------------------------------------------------------------
       real x, y, z, c, s
 
 
-      eps = 1e-3
+      integer icalld
+      save    icalld
+      data    icalld  /0/
 
-      gamma_r = 1.3123e-03
-      gamma_i = -9.0297e-01
+      eps = 1e-4
+
+      gamma_r = 0.0110445769
+      gamma_i = -0.8916206701
       alpha = 1.0
 
       n = nx1*ny1*nz1*nelv
 
-      call gfldr("u_base0.f00001")
-      call copy(ubase(1,1,1,1),vz(1,1,1,1),n)
-      call gfldr("u_real0.f00001")
-      call copy(ur(1,1,1,1),vx(1,1,1,1),n)
-      call copy(vr(1,1,1,1),vy(1,1,1,1),n)
-      call copy(wr(1,1,1,1),vz(1,1,1,1),n)
-      call gfldr("u_imag0.f00001")
-      call copy(ui(1,1,1,1),vx(1,1,1,1),n)
-      call copy(vi(1,1,1,1),vy(1,1,1,1),n)
-      call copy(wi(1,1,1,1),vz(1,1,1,1),n)
+      if (icalld.eq.0) then
+         icalld = 1
+         call gfldr("u_base0.f00001")
+         call copy(ubase(1,1,1,1),vz(1,1,1,1),n)
+         call gfldr("u_real0.f00001")
+         call copy(ur(1,1,1,1),vx(1,1,1,1),n)
+         call copy(vr(1,1,1,1),vy(1,1,1,1),n)
+         call copy(wr(1,1,1,1),vz(1,1,1,1),n)
+         call gfldr("u_imag0.f00001")
+         call copy(ui(1,1,1,1),vx(1,1,1,1),n)
+         call copy(vi(1,1,1,1),vy(1,1,1,1),n)
+         call copy(wi(1,1,1,1),vz(1,1,1,1),n)
+      endif
 
       epsamp = eps*exp(gamma_r*time)
 

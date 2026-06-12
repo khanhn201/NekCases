@@ -4,39 +4,43 @@ userSections = CASEDATA
 polynomialOrder = 9
 timeStepper = tombo3
 dt = 1e-3
-numSteps = 2000
-checkpointInterval = 100
+numSteps = 20000
+checkpointInterval = 1000
+
+#[MESH]
+#hRefine = 2
 
 [FLUID PRESSURE]
-residualTol = 1e-6
+residualTol = 1e-12
 initialGuess = projectionAconj+nVector=10
-smootherType = JAC+Chebyshev
 
 [FLUID VELOCITY]
 boundaryTypeMap = w
 density = 1.0
-residualTol = 1e-8
+residualTol = 1e-12
 initialGuess = projectionAconj+nVector=10
-viscosity = 1.2500e-04
+viscosity = 0.000100000000
 
 
 [MHD INDUCTIONLESS]
 boundaryTypeMap = I
 mesh = fluid+solid
 
-sigma = 0.028125
-sigmaSolid = 0.2812
+lorentzCoeff = 1 # interaction number
+sigma = 0.0225000000
+sigmaSolid =  0.011250
 
 bx = 0.0
 by = 1.0
 bz = 0.0
 
+residualTol = 1e-12
 # pMGSchedule = p=7+degree=3,p=5+degree=3,p=3+degree=3,p=1,p=3+degree=3,p=5+degree=3,p=7+degree=3
-smootherType = jacobi + FourthOptChebyshev
-coarseGridDiscretization = fem+galerkin
+# smootherType = jacobi + FourthOptChebyshev
+# coarseGridDiscretization = fem+galerkin
 
 
 [CASEDATA]
 iochk = 100
-fz = 0.014325690
-gamma_r = 0.00131231462
+fz = 0.00628554756
+gamma_r = 0.0110445769

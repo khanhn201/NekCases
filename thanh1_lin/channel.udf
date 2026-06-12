@@ -136,7 +136,7 @@ void UDF_ExecuteStep(double time, int tstep)
 
 
 
-  if (tstep < 20) {
+  if (tstep < 100) {
     nrs->copyToNek(time, tstep);
     nek::userchk();
     nrs->copyFromNek(time);

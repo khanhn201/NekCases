@@ -13,23 +13,45 @@ void udfDirichlet(bcData *bc)
 
 #endif
 
+
+static dfloat P_GAMMA_R;
+static dfloat P_GAMMA_I;
+static dfloat P_ALPHA;
+static dfloat P_FZ;
+static dfloat P_EPS;
+
 void userf(double time)
 {
   auto &fluid = nrs->fluid;
   auto mesh = fluid->mesh;
 
-  dfloat fz = 1.0;
-  platform->par->extract("casedata", "fz", fz); 
   auto o_FUz = fluid->o_EXT.slice(2 * fluid->fieldOffset, fluid->fieldOffset);
-  platform->linAlg->fill(mesh->Nlocal, fz, o_FUz);
+  platform->linAlg->fill(mesh->Nlocal, P_FZ, o_FUz);
 }
 
 void UDF_LoadKernels(deviceKernelProperties& kernelInfo)
 {
+
 }
 
+
+void UDF_Setup0(MPI_Comm comm, setupAide &options)
+{
+  platform->par->extract("casedata", "p_fz", P_FZ);
+  platform->par->extract("casedata", "p_gamma_r", P_GAMMA_R);
+  platform->par->extract("casedata", "p_gamma_i", P_GAMMA_I);
+  platform->par->extract("casedata", "p_alpha", P_ALPHA);
+  platform->par->extract("casedata", "p_eps", P_EPS);
+  if (platform->options.compareArgs("BUILD ONLY", "FALSE")) {
+    *nek::ptr<double>("p_gamma_r") = P_GAMMA_R;
+    *nek::ptr<double>("p_gamma_i") = P_GAMMA_I;
+    *nek::ptr<double>("p_alpha") = P_ALPHA;
+    *nek::ptr<double>("p_eps") = P_EPS;
+  }
+}
 void UDF_Setup()
 {
+  platform->par->extract("casedata", "p_fz", fz); 
   nrs->userSource = &userf;
 
   auto &fluid = nrs->fluid;
@@ -128,7 +150,6 @@ void UDF_ExecuteStep(double time, int tstep)
             << " AMP"
             << std::endl;
   }
-//  if (time < 0.1) {
   if (tstep < 200) {
       vy_0 = vy2;
       time_start = time;

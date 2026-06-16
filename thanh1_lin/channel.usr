@@ -1,20 +1,25 @@
-C
-
-C  USER SPECIFIED ROUTINES: 
-C
-C     - boundary conditions 
-C     - initial conditions  
-C     - variable properties 
-C     - forcing function for fluid (f)
-C     - forcing function for passive scalar (q)
-C     - general purpose routine for checking errors etc.        
-C
 c-----------------------------------------------------------------------
       subroutine useric (ix,iy,iz,ieg)
       include 'SIZE'
       include 'TOTAL'
       include 'NEKUSE'
 
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat0
+
+      include 'SIZE'
+      include 'TOTAL'
+
+      common /casevars/ p_gamma_r, p_gamma_i, p_alpha, p_eps
+      real p_gamma_r, p_gamma_i, p_alpha, p_eps
+
+      call nekrs_registerPtr('p_gamma_r', P_GAMMA_R)
+      call nekrs_registerPtr('p_gamma_i', P_GAMMA_I)
+      call nekrs_registerPtr('p_alpha', P_ALPHA)
+      call nekrs_registerPtr('p_eps', P_EPS)
 
       return
       end
@@ -27,7 +32,6 @@ c-----------------------------------------------------------------------
      $                 wb(lx1,ly1,lz1,lelv)
       real ub, vb, wb
 
-      
       ntot = lx1*ly1*lz1*nelv
 
       ! Initialize with IC
@@ -52,17 +56,17 @@ c-----------------------------------------------------------------------
       include 'SIZE'
       include 'TOTAL'
 
-      real alpha, zlength
-      alpha = 1.0
-      zlength = 2*pi/alpha
-      call rescale_x (zm1,0.0,zlength)
+      common /casevars/ p_gamma_r, p_gamma_i, p_alpha, p_eps
+      real p_gamma_r, p_gamma_i, p_alpha, p_eps
 
+      real zlength
+
+      zlength = 2*pi/p_alpha
+      call rescale_x (zm1,0.0,zlength)
 
       ! reconstruct boundary tags 
       do iel=1,nelv
         do ifc=1,2*ndim
-c         if (cbc(ifc,iel,1) .eq. 'v  ') boundaryID(ifc,iel) = 1
-c         if (cbc(ifc,iel,1) .eq. 'O  ') boundaryID(ifc,iel) = 2
            if (cbc(ifc,iel,1) .eq. 'W  ') boundaryID(ifc,iel) = 1
         enddo
         enddo
@@ -70,8 +74,6 @@ c         if (cbc(ifc,iel,1) .eq. 'O  ') boundaryID(ifc,iel) = 2
         do iel=1,nelt
         do ifc=1,2*ndim
            if (cbc(ifc,iel,2) .eq. 'I  ') boundaryIDt(ifc,iel) = 1
-c         if (cbc(ifc,iel,2) .eq. 'O  ') boundaryIDt(ifc,iel) = 2
-c         if (cbc(ifc,iel,2) .eq. 'I  ') boundaryIDt(ifc,iel) = 3
         enddo
         enddo
     
@@ -94,7 +96,6 @@ c-----------------------------------------------------------------------
      $               wr(lx1,ly1,lz1,lelv)  , wi(lx1,ly1,lz1,lelv)
       real ur, ui, vr, vi, wr, wi
 
-
       common /initu/   ub(lx1,ly1,lz1,lelv),vb(lx1,ly1,lz1,lelv),
      $                 wb(lx1,ly1,lz1,lelv)
       real ub, vb, wb
@@ -102,22 +103,18 @@ c-----------------------------------------------------------------------
       common /baseu/   ubase(lx1,ly1,lz1,lelv)
       real ubase
 
-
-      real epsamp, eps, alpha, gamma_r, gamma_i
-
       integer e,eg,ex,ey,ez,nelxy,nelz,m,i,j,k,n
       real x, y, z, c, s
 
+      common /casevars/ p_gamma_r, p_gamma_i, p_alpha, p_eps
+      real p_gamma_r, p_gamma_i, p_alpha, p_eps
+
+      real epsamp
 
       integer icalld
       save    icalld
       data    icalld  /0/
 
-      eps = 1e-4
-
-      gamma_r = 0.00604853617
-      gamma_i = -0.89997283133
-      alpha = 1.0
 
       n = nx1*ny1*nz1*nelv
 
@@ -135,7 +132,7 @@ c-----------------------------------------------------------------------
          call copy(wi(1,1,1,1),vz(1,1,1,1),n)
       endif
 
-      epsamp = eps*exp(gamma_r*time)
+      epsamp = p_eps*exp(p_gamma_r*time)
 
       do e=1,nelv
       do k=1,nz1
@@ -144,7 +141,7 @@ c-----------------------------------------------------------------------
          x  = xm1(i,j,k,e)
          y  = ym1(i,j,k,e)
          z  = zm1(i,j,k,e)
-         az = alpha*z + gamma_i*time
+         az = p_alpha*z + p_gamma_i*time
 
          c  = cos(az)
          s  = sin(az)

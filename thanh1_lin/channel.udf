@@ -51,7 +51,6 @@ void UDF_Setup0(MPI_Comm comm, setupAide &options)
 }
 void UDF_Setup()
 {
-  platform->par->extract("casedata", "p_fz", fz); 
   nrs->userSource = &userf;
 
   auto &fluid = nrs->fluid;
@@ -113,8 +112,6 @@ void UDF_ExecuteStep(double time, int tstep)
   auto &fluid = nrs->fluid;
   auto &mhdIndless = nrs->mhdIndless;
   auto mesh = fluid->mesh;
-  dfloat gamma_r = 1.0;
-  platform->par->extract("casedata", "gamma_r", gamma_r);
 
   poolDeviceMemory<dfloat> o_vy2(mesh->Nlocal);
   platform->linAlg->axmyz(
@@ -136,8 +133,8 @@ void UDF_ExecuteStep(double time, int tstep)
   dfloat vy2l = vy2/vy_last;
   dfloat gr = log(vy2r)/(time-time_start);
   dfloat gl = log(vy2l)/nrs->dt[0];
-  dfloat ge = abs(gr - gamma_r)/gamma_r;
-  dfloat gle = abs(gl - gamma_r)/gamma_r;
+  dfloat ge = abs(gr - P_GAMMA_R)/P_GAMMA_R;
+  dfloat gle = abs(gl - P_GAMMA_R)/P_GAMMA_R;
 
   if (platform->comm.mpiRank() == 0) {
   std::cout << "tstep=" << tstep

@@ -1,0 +1,15 @@
+# mkmesh stuffs
+combine.*
+fort.*
+out.*
+pretex.*
+session.name
+solid.rea
+fluid.rea
+
+# case files
+channel.rea
+channel.re2
+u*.f00001
+*.nek5000
+*0.f*

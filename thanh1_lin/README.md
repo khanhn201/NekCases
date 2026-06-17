@@ -2,6 +2,8 @@
 Flow is along the z direction and periodic in z.
 
 Fluid domain is [-1, 1] x [-1, 1] x [0, 2pi/alpha] where alpha is the wave number.
+Solid domain has a thickness of 0.1.
+
 
 Reference paper: [Priede2016](https://doi.org/10.1017/jfm.2015.709)
 
@@ -70,8 +72,8 @@ The only unstable eigenvalue is `gamma = 0.00604853617 - 0.89997283133i`
 ### Ha = 100
 ```
 N = 15
-Re = 1e4;
-Ha = 15;
+Re = 3e4;
+Ha = 100;
 c = 1.0;
 W = 0.1;
 alpha = 1.0;
@@ -79,6 +81,6 @@ alpha = 1.0;
 meshVel  = [-1.0, -0.8, -0.4, 0.0, 0.4, 0.8, 1.0];
 meshWall = [0.0, 1.0]*W + 1.0;
 ```
-The only unstable eigenvalue is `gamma = 0.0186048180 - 0.7790663688i`
+The only unstable eigenvalue is `gamma = 0.0199250325 - 0.7769595690i`
 ![Ha100](img/ha100.png)
 

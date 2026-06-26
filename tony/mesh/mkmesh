@@ -1,0 +1,37 @@
+
+n2to3 << EOF
+inside
+ins3d
+0                      ascii output
+40                     input number of levels: (1, 2, 3,... etc.?):
+0.00                   input z min
+2.00                   input z max
+1.0                    input gain (0=custom,1=uniform,other=geometric spacing):
+n                      This is for CEM: yes or no:
+P                      Enter Z (5) boundary condition (P,v,O):
+y                      Formatted .rea file? (y or Y):
+EOF
+
+reatore2 << EOF
+ins3d
+ins3f
+EOF
+
+n2to3 << EOF
+outside
+out3d
+0                      ascii output
+31                     input number of levels: (1, 2, 3,... etc.?):
+0.00                   input z min
+2.00                   input z max
+1.0                    input gain (0=custom,1=uniform,other=geometric spacing):
+n                      This is for CEM: yes or no:
+P                      Enter Z (5) boundary condition (P,v,O):
+y                      Formatted .rea file? (y or Y):
+EOF
+
+reatore2 << EOF
+out3d
+out3f
+EOF
+

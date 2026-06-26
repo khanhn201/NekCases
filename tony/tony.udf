@@ -1,0 +1,86 @@
+
+//
+// nekRS User Defined File
+//
+#include "udf.hpp"
+
+
+#ifdef __okl__
+
+
+// Boundary conditions
+void udfDirichlet(bcData *bc)
+{
+
+  if (isField("fluid velocity")) {
+
+    if (bc->id == 1) {// Int Boundaries
+       bc->uxFluid = bc->uxFluidInt;
+       bc->uyFluid = bc->uyFluidInt;
+       bc->uzFluid = bc->uzFluidInt;
+    }
+    if (bc->id == 3) {// v Boundaries
+        bc->uxFluid = 1.0;
+        bc->uyFluid = 0.0;
+        bc->uzFluid = 0.0;
+    }
+  } else if (isField("scalar temperature")) { 
+    bc->sScalar = bc->sScalarInt;
+
+    if (bc->id == 1) {// Int Boundaries
+        bc->sScalar = bc->sScalarInt;
+    }
+    if (bc->id == 2) {// w Boundaries
+        bc->sScalar = 1.0;
+    }
+    if (bc->id == 3) {// v Boundaries
+        bc->sScalar = 0.0;
+    }
+  }
+}
+
+
+
+#endif
+
+void uservp(double time)
+{
+  auto mesh = nrs->meshV;
+  auto& scalar = nrs->scalar;
+
+  const dfloat arg      = -time/10.0;
+  const dfloat reynolds = 1000.0 + 4000.0*(1.0-exp(arg));
+  const dfloat prandtl  = 0.71;
+  const dfloat visc     = 1./reynolds
+  const dfloat diff     = visc/prandtl
+
+  platform->linAlg->fill(mesh->Nlocal, visc, nrs->fluid->o_mue);
+  platform->linAlg->fill(mesh->Nlocal, diff, nrs->scalar->o_diff);
+
+}
+
+
+void UDF_LoadKernels(deviceKernelProperties& kernelInfo)
+{
+}
+
+void UDF_Setup0(MPI_Comm comm, setupAide &options)
+{
+}
+
+void userq(double time)
+{
+  auto mesh = nrs->meshV;
+}
+
+void UDF_Setup()
+{
+  nrs->userProperties = &uservp;
+}
+
+void UDF_ExecuteStep(double time, int tstep)
+{
+  auto mesh = nrs->meshV;
+
+ 
+}

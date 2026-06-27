@@ -1,22 +1,24 @@
 userSections = CASEDATA
 
 [GENERAL]
-polynomialOrder = 7
+startFrom = "c6.f00000"
+polynomialOrder = 9
 numSteps = 1000000
 dt = 5e-04
 timeStepper = tombo2
-checkpointInterval = 100
+checkpointInterval = 10000
 
 udf = "../tony.udf"
 
-scalars = TEMPERATURE
+scalars = TEMPERATURE, LAMBDA
 
 [NEKNEK]
 boundaryEXTOrder = 1
 
 
 [PROBLEMTYPE]
-equation = navierStokes+variableViscosity
+# equation = navierStokes+variableViscosity
+equation = navierStokes
 
 [FLUID PRESSURE]
 residualTol = 1e-08
@@ -24,14 +26,17 @@ residualTol = 1e-08
 [FLUID VELOCITY]
 residualTol = 1e-12
 density = 1.0
-viscosity = 1.0/5000.0
+viscosity = 1.0/700.0
 boundaryTypeMap = int, zeroNeumann, udfDirichlet
 
 [SCALAR TEMPERATURE]
 residualTol = 1e-12
 transportCoeff = 1.0
-diffusionCoeff = 1.0/3500.0
+diffusionCoeff = 1.0/490.0
 boundaryTypeMap = int, zeroNeumann, udfDirichlet
+
+[SCALAR LAMBDA]
+solver=none
 
 [CASEDATA]
 

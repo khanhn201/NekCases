@@ -50,7 +50,7 @@ void uservp(double time)
   auto& scalar = nrs->scalar;
 
   const dfloat arg      = -time/10.0;
-  const dfloat reynolds = 1000.0 + 4000.0*(1.0-exp(arg));
+  const dfloat reynolds = 400.0 + 100.0*(1.0-exp(arg));
   const dfloat prandtl  = 0.71;
   const dfloat visc     = 1./reynolds;
   const dfloat diff     = visc/prandtl;
@@ -76,7 +76,7 @@ void userq(double time)
 
 void UDF_Setup()
 {
-  nrs->userProperties = &uservp;
+  // nrs->userProperties = &uservp;
 }
 
 void UDF_ExecuteStep(double time, int tstep)
@@ -98,5 +98,11 @@ void UDF_ExecuteStep(double time, int tstep)
     platform->linAlg->add(mesh->Nlocal, -1.0, o_tmp);               // o_tmp = VX -1.0
     platform->linAlg->axpby(mesh->Nlocal, 0.01, o_tmp, 1.0, o_UY); // VY += 0.01 * tmp
   }
+  if (nrs->checkpointStep) {
+    nrs->copyToNek(time, tstep);
+    nek::userchk(); // compute lambda2
+    nrs->copyFromNek(time);
+  }
+
  
 }

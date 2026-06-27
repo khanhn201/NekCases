@@ -11,9 +11,7 @@
 // Boundary conditions
 void udfDirichlet(bcData *bc)
 {
-
   if (isField("fluid velocity")) {
-
     if (bc->id == 1) {// Int Boundaries
        bc->uxFluid = bc->uxFluidInt;
        bc->uyFluid = bc->uyFluidInt;
@@ -24,6 +22,11 @@ void udfDirichlet(bcData *bc)
         bc->uyFluid = 0.0;
         bc->uzFluid = 0.0;
     }
+  } else if (isField("fluid pressure")) {
+    const dfloat iU0delta = 20.0;
+    const dfloat un = bc->uxFluid * bc->nx + bc->uyFluid * bc->ny + bc->uzFluid * bc->nz;
+    const dfloat s0 = 0.5 * (1.0 - tanh(un * iU0delta));
+    bc->pFluid = -0.5 * (bc->uxFluid * bc->uxFluid + bc->uyFluid * bc->uyFluid + bc->uzFluid * bc->uzFluid) * s0;
   } else if (isField("scalar temperature")) { 
     bc->sScalar = bc->sScalarInt;
 
@@ -38,8 +41,6 @@ void udfDirichlet(bcData *bc)
     }
   }
 }
-
-
 
 #endif
 
@@ -82,5 +83,20 @@ void UDF_ExecuteStep(double time, int tstep)
 {
   auto mesh = nrs->meshV;
 
+
+  if (tstep > 1000 && tstep < 1009) {
+    // Perturn vy
+    const dfloat scale = 0.01;
+
+    auto o_UX = nrs->fluid->o_U + 0 * nrs->fluid->fieldOffset;
+    auto o_UY = nrs->fluid->o_U + 1 * nrs->fluid->fieldOffset;
+
+    deviceMemory<dfloat> o_tmp;
+    o_tmp.resize(mesh->Nlocal);
+    
+    platform->linAlg->axpbyz(mesh->Nlocal, 1.0, o_tmp, 1.0, o_UX, o_tmp); // o_tmp = VX
+    platform->linAlg->add(mesh->Nlocal, -1.0, o_tmp);               // o_tmp = VX -1.0
+    platform->linAlg->axpby(mesh->Nlocal, 0.01, o_tmp, 1.0, o_UY); // VY += 0.01 * tmp
+  }
  
 }

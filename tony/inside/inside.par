@@ -36,7 +36,3 @@ boundaryTypeMap = int, udfDirichlet
 
 
 [CASEDATA]
-P_U0 = 5.0
-P_V0 = 1.5
-P_OMEGA = 2 # multiplied by pi
-P_SCALE = 2 # multiplied by pi

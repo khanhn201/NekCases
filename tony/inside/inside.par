@@ -2,12 +2,12 @@ userSections = CASEDATA
 
 [GENERAL]
 polynomialOrder = 7
-numSteps = 1000 
+numSteps = 1000000
 dt = 5e-04
 timeStepper = tombo2
-checkpointInterval = 10
+checkpointInterval = 100
+advectionSubCyclingSteps = 2
 
-usr = "../tony.usr"
 udf = "../tony.udf"
 
 scalars = TEMPERATURE

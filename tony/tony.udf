@@ -51,8 +51,8 @@ void uservp(double time)
   const dfloat arg      = -time/10.0;
   const dfloat reynolds = 1000.0 + 4000.0*(1.0-exp(arg));
   const dfloat prandtl  = 0.71;
-  const dfloat visc     = 1./reynolds
-  const dfloat diff     = visc/prandtl
+  const dfloat visc     = 1./reynolds;
+  const dfloat diff     = visc/prandtl;
 
   platform->linAlg->fill(mesh->Nlocal, visc, nrs->fluid->o_mue);
   platform->linAlg->fill(mesh->Nlocal, diff, nrs->scalar->o_diff);

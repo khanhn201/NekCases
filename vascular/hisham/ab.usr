@@ -1,0 +1,2221 @@
+c-----------------------------------------------------------------------
+c     Carotid Artery .usr routine
+c
+c     Recent modifications:
+c
+c      o  August 12, 2002
+c         Non-trivial divergence inserted near ICA outflow, in order
+c         to ensure that all characteristics leave the domain.  (Requires
+c         a change to navier4.f
+c
+c      o  Nov. 4, 2002
+c         Changed Womersley to use splines
+c
+c
+c-----------------------------------------------------------------------
+      subroutine uservp (ix,iy,iz,iel)                
+      INCLUDE 'SIZE'   
+      INCLUDE 'TOTAL'  
+      INCLUDE 'NEKUSE' 
+c
+      integer istepo
+      save    istepo
+      data    istepo /0/
+c
+c
+c     Be sure that param(1) = density
+c                       (2) = dynamic viscosity
+c                      (30) = 1.   (in order to force calling this routine)
+c
+      param(2) = 1.0/250.0
+      density   = 1.0
+      viscosity = param(2)
+ 
+      tau    = 0.01
+      ramp0  = ramp_to_zero(time,tau)
+      UDIFF  = viscosity * ( 1. +  5000.*ramp0 )
+      UTRANS = density
+ 
+c     if (nid.eq.0)  
+c    $    write(6,1) istep,' udiff:',udiff,utrans,ramp0
+    1 format(i8,a7,1p3e15.5)
+      istepo = istep
+ 
+      return
+      end
+c-----------------------------------------------------------------------
+      function ramp_to_zero (time,tau)
+c     ramp_to_zero = 0.
+c     ramp_to_zero = 1.0*exp(-time/tau)
+c     return
+c
+      if (time.lt.0) then
+         ramp_to_zero = 1.0
+      elseif (time.lt.tau) then
+         arg = 0.5*(3.14159)*time/tau
+         ramp_to_zero = 1.-sin(arg)
+      endif
+c
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userf  (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TSTEP'
+C     include 'TOTAL'
+      include 'NEKUSE'
+C
+      ffx = 0.0
+      ffy = 0.0
+      ffz = 0.0
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userq  (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+C
+      qvol   = 0.0
+      source = 0.0
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userchk
+      include 'SIZE'
+      include 'TOTAL'
+c
+      real flx(3)
+c
+      common /cvflow_l/ ifdivf
+      logical ifdivf
+c
+      integer icalld
+      save    icalld
+      data    icalld  /0/
+c
+      common /myoutflow/ d(lx1,ly1,lz1,lelt),m1(lx1*ly1*lz1,lelt)
+      real m1
+
+
+      ifpsco(1)=.true.
+      ifto=.true.
+      call lambda2(t(1,1,1,1,1)) ! Put lambda2 --> passive scalar 1
+
+      rq  = 2.0
+      uin = 1.
+      call turb_outflow(d,m1,rq,uin)
+
+      ifdivf = .false.    !  Set nontrivial divergence for outflow ICA bc.
+      if (istep.gt.iostep) ifxyo = .false.  ! No geometry output after .fld01
+c
+      if (icalld.eq.0) then
+         call set_graft
+      endif
+      icalld = icalld + 1
+ 
+      if (icalld.gt.1) then
+         call flux_adjust             ! Cannot call this till 1st step
+         call flux_calc(flx,vx,vy,vz)
+         if (nid.eq.0) write(6,1) istep,time,(flx(k),k=1,3)
+    1    format(i10,1p4e15.7,'   flux')
+      endif
+c     call avg_all
+c
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userbc (ix,iy,iz,iface,ieg)
+      include 'SIZE'
+      include 'TSTEP'
+      include 'NEKUSE'
+      include 'PARALLEL'
+      include 'GEOM'
+      include 'TOPOL'
+c
+      logical lsteady
+c
+      common /avgraft/ cgx0,cgy0,cgz0,are0,rad0,qvol0,vmax0
+     $               , cgx1,cgy1,cgz1,are1,rad1,qvol1,vmax1
+     $               , cgx2,cgy2,cgz2,are2,rad2,qvol2,vmax2
+     $               , cgbar
+     $               , unx0,uny0,unz0,unx1,uny1,unz1,unx2,uny2,unz2
+c
+      parameter (lin=lx1*ly1*lelt)
+c
+      real timel
+      save timel
+      data timel /-9999./
+c
+c
+      ux   = 0.
+      uy   = 0.
+      uz   = 0.
+      temp = 0.
+c
+c     This is the bc for the carotid
+c
+      lsteady = .true.
+      lsteady = .false.
+      ie = gllel(ieg)
+      if (lsteady) then
+        xx = x-cgx0
+        yy = y-cgy0
+        rr = xx*xx + yy*yy
+        um = vmax0*(1.-rr/(rad0*rad0))
+        ux = -unx(ix,iy,iface,ie) * um
+        uy = -uny(ix,iy,iface,ie) * um
+        uz = -unz(ix,iy,iface,ie) * um
+        temp= 1. + uz/vmax0
+      else
+        time_womer = 0.6+ time*(0.008/0.083)         ! dimensional time
+        xx = x-cgx0
+        yy = y-cgy0
+        zz = z-cgz0
+        rt = xx*xx + yy*yy + zz*zz
+        rr = rt/(rad0*rad0)
+        if (rr.gt.0) rr = sqrt(rr)
+        uwom = womer(rr, time_womer)
+        uwom = uwom/0.083 ! dimensionless velocity
+c       uwom = 1.0
+
+
+        ux   = -unx(ix,iy,iface,ie) * uwom   ! NOTE:  You must pay attention
+        uy   = -uny(ix,iy,iface,ie) * uwom   !        to which boundary (5 or 6)
+        uz   = -unz(ix,iy,iface,ie) * uwom   !        has the " v " BC.
+      endif
+c
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine useric (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TSTEP'
+C     include 'TOTAL'
+      include 'NEKUSE'
+      ux=0.0
+      uy=0.0
+      uz=0.0
+      temp=0
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdatx
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat2
+      include 'SIZE'
+      include 'TOTAL'
+
+      integer e,eg,f
+
+      common /fluxsurf/ nfluxsurf,iefsurf(900),iffsurf(900),itfsurf(900)
+
+      n = lx1*ly1*lz1*nelt
+
+      nface = 2*ldim
+
+      do iel=1,nelt
+      do ifc=1,2*ndim
+         if (cbc(ifc,iel,1) .eq. 'W  ') then
+           boundaryID(ifc,iel) = 1
+         elseif (cbc(ifc,iel,1) .eq. 'v  ') then
+           boundaryID(ifc,iel) = 2 ! trunk
+         elseif (cbc(ifc,iel,1) .eq. 'O  ') then
+           boundaryID(ifc,iel) = 3 ! branch 1
+         elseif (cbc(ifc,iel,1) .eq. 'int') then
+           boundaryID(ifc,iel) = 4 ! branch 2
+         endif
+      enddo
+      enddo
+
+
+      nfluxsurf = 0
+      do iel=1,nelt
+         do iface = 1, nface
+            if (cbc(iface,iel,1) .eq. 'f1 ') then ! brach 1
+               cbc(iface,iel,1) = 'E  '
+               nfluxsurf = nfluxsurf+1
+               iefsurf(nfluxsurf)=iel
+               iffsurf(nfluxsurf)=iface
+               itfsurf(nfluxsurf)=1
+            elseif (cbc(iface,iel,1) .eq. 'f2 ') then ! branch 2
+               cbc(iface,iel,1) = 'E  '
+               nfluxsurf = nfluxsurf+1
+               iefsurf(nfluxsurf)=iel
+               iffsurf(nfluxsurf)=iface
+               itfsurf(nfluxsurf)=2
+            elseif (cbc(iface,iel,1) .eq. 'v  ') then ! trunk
+               cbc(iface,iel,1) = 'v  '
+               nfluxsurf = nfluxsurf+1
+               iefsurf(nfluxsurf)=iel
+               iffsurf(nfluxsurf)=iface
+               itfsurf(nfluxsurf)=3
+            elseif (cbc(iface,iel,1) .eq. 'O  ') then ! branch 1
+               cbc(iface,iel,1) = 'O  '
+            elseif (cbc(iface,iel,1) .eq. 'int') then ! branch 2
+               cbc(iface,iel,1) = 'O  '
+            endif
+         enddo 
+      enddo
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine set_graft
+c
+c     Set up bc's for inflow condition in AV graft
+c
+c
+      include 'SIZE'
+      include 'TOTAL'
+c
+      call find_outflow
+c
+c     Diagnostics to characterize domain size
+c
+      ntot = nx1*ny1*nz1*nelv
+      xmin = glmin(xm1,ntot)
+      ymin = glmin(ym1,ntot)
+      zmin = glmin(zm1,ntot)
+      xmax = glmax(xm1,ntot)
+      ymax = glmax(ym1,ntot)
+      zmax = glmax(zm1,ntot)
+      dx   = xmax-xmin
+      dy   = ymax-ymin
+      dz   = zmax-zmin
+      if (nid.eq.0) write(6,1) 'CAR:xyzlength',dx,dy,dz
+    1 format(a13,1p3e12.3)
+c
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine find_outflow
+c
+c     find outflow points to measure flow rate ratios in different
+c     branches of bifurcation
+c
+c
+      include 'SIZE'
+      include 'TOTAL'
+      common /scruz/ one(lx1,ly1,lz1)
+c
+      integer e,f
+c
+      common /avgraft/ cgx0,cgy0,cgz0,are0,rad0,qvol0,vmax0
+     $               , cgx1,cgy1,cgz1,are1,rad1,qvol1,vmax1
+     $               , cgx2,cgy2,cgz2,are2,rad2,qvol2,vmax2
+     $               , cgbar
+     $               , unx0,uny0,unz0,unx1,uny1,unz1,unx2,uny2,unz2
+      common /avgrafi/ nsurf,nbrnch,iesurf(900),ifsurf(900),itsurf(900)
+      character*1 cbb
+c
+c
+      nbrnch = 3
+c
+      nxy  = nx1*ny1
+      nxyz = nx1*ny1*nz1
+      call rone(one,nxyz)
+c
+      vmax0 = 0.10
+c
+      jf    = 1
+      nface = 2*ndim
+c
+      cgbar = 0.
+      cgx0 = 0.
+      cgy0 = 0.
+      cgz0 = 0.
+      are0 = 0.
+      cgx1 = 0.
+      cgy1 = 0.
+      cgz1 = 0.
+      are1 = 0.
+      cgx2 = 0.
+      cgy2 = 0.
+      cgz2 = 0.
+      are2 = 0.
+      nsurf=0
+      do e=1,nelv
+      do f=1,nface
+         cbb=cbc(f,e,jf)
+         if (cbb.eq.'O  '.or.cbb.eq.'v  ') then
+            ulx   = vlsc2(unx(1,1,f,e),area(1,1,f,e),nxy)
+            uly   = vlsc2(uny(1,1,f,e),area(1,1,f,e),nxy)
+            ulz   = vlsc2(unz(1,1,f,e),area(1,1,f,e),nxy)
+            are   = facdot(one,area(1,1,f,e),f)
+            cgx   = facdot(xm1(1,1,1,e),area(1,1,f,e),f)
+            cgy   = facdot(ym1(1,1,1,e),area(1,1,f,e),f)
+            cgz   = facdot(zm1(1,1,1,e),area(1,1,f,e),f)
+            cgl   = cgy/are
+            nsurf = nsurf+1
+            iesurf(nsurf)=e
+            ifsurf(nsurf)=f
+            if (boundaryID(f,e).eq.3) then ! branch 1
+                  unx1 = unx1 + ulx
+                  uny1 = uny1 + uly
+                  unz1 = unz1 + ulz
+                  cgx1 = cgx1 + cgx
+                  cgy1 = cgy1 + cgy
+                  cgz1 = cgz1 + cgz
+                  are1 = are1 + are
+                  itsurf(nsurf)=1
+            elseif (boundaryID(f,e).eq.4) then ! branch 2
+                  unx2 = unx2 + ulx
+                  uny2 = uny2 + uly
+                  unz2 = unz2 + ulz
+                  cgx2 = cgx2 + cgx
+                  cgy2 = cgy2 + cgy
+                  cgz2 = cgz2 + cgz
+                  are2 = are2 + are
+                  itsurf(nsurf)=2
+            else ! trunk
+               unx0 = unx0 + ulx
+               uny0 = uny0 + uly
+               unz0 = unz0 + ulz
+               cgx0 = cgx0 + cgx
+               cgy0 = cgy0 + cgy
+               cgz0 = cgz0 + cgz
+               are0 = are0 + are
+               itsurf(nsurf)=3
+            endif
+         endif
+      enddo
+      enddo
+c
+      are0 = glsum(are0,1)
+      are1 = glsum(are1,1)
+      are2 = glsum(are2,1)
+c
+      cgy1t = glsum(cgy1,1)
+      cgy2t = glsum(cgy2,1)
+      cgbar = (cgy1t+cgy2t)/(are1+are2)
+c
+      unx0 = glsum(unx0,1)/are0
+      uny0 = glsum(uny0,1)/are0
+      unz0 = glsum(unz0,1)/are0
+      cgx0 = glsum(cgx0,1)/are0
+      cgy0 = glsum(cgy0,1)/are0
+      cgz0 = glsum(cgz0,1)/are0
+c
+      unx1 = glsum(unx1,1)/are1
+      uny1 = glsum(uny1,1)/are1
+      unz1 = glsum(unz1,1)/are1
+      cgx1 = glsum(cgx1,1)/are1
+      cgy1 = glsum(cgy1,1)/are1
+      cgz1 = glsum(cgz1,1)/are1
+c
+      unx2 = glsum(unx2,1)/are2
+      uny2 = glsum(uny2,1)/are2
+      unz2 = glsum(unz2,1)/are2
+      cgx2 = glsum(cgx2,1)/are2
+      cgy2 = glsum(cgy2,1)/are2
+      cgz2 = glsum(cgz2,1)/are2
+c
+      call norm3dv(unx0,uny0,unz0)
+      call norm3dv(unx1,uny1,unz1)
+      call norm3dv(unx2,uny2,unz2)
+c
+      pi = 4.*atan(one(1,1,1))
+      rad0 = sqrt(are0/pi)
+      rad1 = sqrt(are1/pi)
+      rad2 = sqrt(are2/pi)
+c
+      if (nid.eq.0) then
+         write(6,1) 'CAR: cgbar',cgbar,cgy1,cgy2
+         write(6,1) 'CAR: cgx12',cgx1,cgx2,cgx0
+         write(6,1) 'CAR: cgy12',cgy1,cgy2,cgy0
+         write(6,1) 'CAR: cgz12',cgz1,cgz2,cgz0
+         write(6,1) 'CAR: are12',are1,are2,are0
+         write(6,1) 'CAR: rad12',rad1,rad2,rad0
+    1    format(a10,1p3e12.4)
+      endif
+c
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine set_flx_msk   (m1,m2,m3,ibranch)
+c
+      include 'SIZE'
+      include 'TOTAL'
+c
+      common /avgrafi/ nsurf,nbrnch,iesurf(900),ifsurf(900),itsurf(900)
+      common /scruz/   one(lx1,ly1,lz1)
+c
+      real m1(lx1,ly1,lz1,lelv)
+      real m2(lx1,ly1,lz1,lelv)
+      real m3(lx1,ly1,lz1,lelv)
+      integer e,f
+c
+      nfound = 0
+      do i=1,nsurf
+         j=itsurf(i)
+         f=ifsurf(i)
+         e=iesurf(i)
+         if (j.ne.ibranch.and.j.ne.0) then
+            nfound = nfound+1
+            call facev(m1,e,f,0.,nx1,ny1,nz1)
+            call facev(m2,e,f,0.,nx1,ny1,nz1)
+            call facev(m3,e,f,0.,nx1,ny1,nz1)
+         endif
+      enddo
+c     write(6,*) nid,'CAR:  #outflow:',nfound,ibranch
+      xfound = nfound
+      xfound = glsum(xfound,1)
+      nfound = xfound
+      if (nid.eq.0) write(6,*) 'CAR:  #outflow:',nfound,ibranch
+c
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine flux_calc(flux,ux,uy,uz)
+c
+c     Coupte outflow fluxes in different branches of bifurcation
+c
+c
+      include 'SIZE'
+      include 'TOTAL'
+c
+      real flux(3)
+      real ux(lx1,ly1,lz1,lelv)
+      real uy(lx1,ly1,lz1,lelv)
+      real uz(lx1,ly1,lz1,lelv)
+c
+c
+      common /avgraft/ cgx0,cgy0,cgz0,are0,rad0,qvol0,vmax0
+     $               , cgx1,cgy1,cgz1,are1,rad1,qvol1,vmax1
+     $               , cgx2,cgy2,cgz2,are2,rad2,qvol2,vmax2
+     $               , cgbar
+     $               , unx0,uny0,unz0,unx1,uny1,unz1,unx2,uny2,unz2
+      common /avgrafi/ nsurf,nbrnch,iesurf(900),ifsurf(900),itsurf(900)
+
+      common /fluxsurf/ nfluxsurf,iefsurf(900),iffsurf(900),itfsurf(900)
+      integer e,f
+c
+c
+      call rzero(flux,nbrnch)
+      do i=1,nfluxsurf
+         j=itfsurf(i)
+         f=iffsurf(i)
+         e=iefsurf(i)
+         flux(j) = flux(j)+ facint(ux,unx,area,f,e)
+     $           +          facint(uy,uny,area,f,e)
+     $           +          facint(uz,unz,area,f,e)
+      enddo
+c
+      do j=1,nbrnch
+         flux(j) = glsum(flux(j),1)
+      enddo
+c
+c
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine flux_adjust
+c
+c     Adust flow volume at end of time step to keep flow rate fixed by
+c     adding an appropriate multiple of the linear solution to the Stokes
+c     problem.
+c
+c     pff 6/28/98  (updated Jan 11/2001)
+c
+      include 'SIZE'
+      include 'TOTAL'
+c
+c     Swap the comments on these two lines if you don't want to fix the
+c     flow rate for periodic-in-X flow problems.
+c
+      common /cvflow_a/ vxc(lx1,ly1,lz1,lelv)
+     $                , vyc(lx1,ly1,lz1,lelv)
+     $                , vzc(lx1,ly1,lz1,lelv)
+     $                , prc(lx2,ly2,lz2,lelv)
+      common /cvflow_r/ flow_rate,base_flow,flx(3)
+c
+      real bd_vflow,dt_vflow
+      save bd_vflow,dt_vflow
+      data bd_vflow,dt_vflow /-99.,-99./
+c
+c     Check list:
+c
+c     param (56) -- percentage through ECA   (most x location)
+c
+c
+      ntot1 = nx1*ny1*nz1*nelv
+      ntot2 = nx2*ny2*nz2*nelv
+c
+c
+      param(56) = 0.3
+      if (param(56).eq.0.) return
+c
+c
+c     If either dt or the backwards difference coefficient change,
+c     then recompute base flow solution corresponding to unit forcing:
+c
+      if (dt.ne.dt_vflow.or.bd(1).ne.bd_vflow)
+     $   call compute_flx_soln(flx,vxc,vyc,vzc,prc)
+c
+      dt_vflow = dt
+      bd_vflow = bd(1)
+c
+      call flux_calc(flx,vx,vy,vz)
+c
+c     total_flux    = flx(1)+flx(2)       ! 8/3/02, pff.
+      total_flux    = -flx(3)             ! flx(1) is messed up because of
+      flx1          = -(flx(2)+flx(3))    ! special outflow bc for turbulence
+      tau           = 0.01          ! Ramp-up flux adjust over t=.075--.125
+c
+      flux2_desired = param(56)*total_flux
+      dflux2 = ( flux2_desired-flx(2) ) * (1.-ramp_to_zero(time,tau))
+      scale  = dflux2/base_flow
+c     scale = 0.0
+c
+      old1 = flx(1)/total_flux
+      old2 = flx(2)/total_flux
+c
+      if (nid.eq.0)
+     $   write(6,1) istep,time,scale,dflux2,total_flux,base_flow
+     $            , flx(3),flx(1),flx(2),flx1
+     $            , old1,old2
+    1    format(i8,e14.7,8e11.3,2f6.3,' CAR:volflow')
+c
+c     call outpost(vx,vy,vz,pr,vx,'p21')
+      call add2s2(vx,vxc,scale,ntot1)
+      call add2s2(vy,vyc,scale,ntot1)
+      call add2s2(vz,vzc,scale,ntot1)
+      call add2s2(pr,prc,scale,ntot2)
+c     call outpost(vx,vy,vz,pr,vx,'p22')
+c
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine compute_flx_soln(flx,vxc,vyc,vzc,prc)
+c
+c     Compute the solution to the time-dependent Stokes problem
+c     with unit forcing, and find associated flow rate.
+c
+c     pff 2/28/98
+c
+      include 'SIZE'
+      include 'TOTAL'
+c
+      real vxc(lx1,ly1,lz1,lelv)
+     $   , vyc(lx1,ly1,lz1,lelv)
+     $   , vzc(lx1,ly1,lz1,lelv)
+     $   , prc(lx2,ly2,lz2,lelv)
+     $   , flx(3)
+      real vxc2(lx1,ly1,lz1,lelv)
+     $   , vyc2(lx1,ly1,lz1,lelv)
+     $   , vzc2(lx1,ly1,lz1,lelv)
+     $   , prc2(lx2,ly2,lz2,lelv)
+c
+      common /cvflow_r/ flow_rate,base_flow
+      common /cvflow_l/ ifdivf
+      logical ifdivf
+c
+      integer icalld
+      save    icalld
+      data    icalld/0/
+c
+c
+      ntot1 = nx1*ny1*nz1*nelv
+      ntot2 = nx2*ny2*nz2*nelv
+      if (nid.eq.0) write(6,*) "param(40) ", param(40)
+      if (nid.eq.0) write(6,*) "param(43) ", param(43)
+      if (nid.eq.0) write(6,*) "ifmgrid ", ifmgrid
+
+      if (ifsplit) then
+         ifdivf = .true.
+         call rzero(vxc,ntot1)
+         call rzero(vyc,ntot1)
+         call rzero(vzc,ntot1)
+         call rzero(prc,ntot2)
+         call plan4_flx(vxc,vyc,vzc,prc,1)
+         call outpost(vxc,vyc,vzc,prc,vxc,'p11')
+         call flux_calc(flx,vxc,vyc,vzc)
+c
+         call chsign(vxc,ntot1)
+         call chsign(vyc,ntot1)
+         call chsign(vzc,ntot1)
+         call chsign(prc,ntot2)
+c
+         call rzero(vxc2,ntot1)
+         call rzero(vyc2,ntot1)
+         call rzero(vzc2,ntot1)
+         call rzero(prc2,ntot2)
+
+         call plan4_flx(vxc2,vyc2,vzc2,prc2,2)
+         call outpost(vxc2,vyc2,vzc2,prc2,vxc2,'p12')
+
+         call opadd2   (vxc,vyc,vzc,vxc2,vyc2,vzc2)
+         call add2    (prc,prc2,ntot2)
+         call outpost(vxc,vyc,vzc,prc,vxc,'p13')
+
+         call flux_calc(flx,vxc,vyc,vzc)
+         if (nid.eq.0) write(6,*) 'CAR: flow 2:',flx(1),flx(2),flx(3)
+         ifdivf = .false.
+      else
+         ifdivf = .true.
+         call rzero(vxc,ntot1)
+         call rzero(vyc,ntot1)
+         call rzero(vzc,ntot1)
+         call rzero(prc,ntot2)
+         call plan3_flx(vxc,vyc,vzc,prc,1)
+         call outpost(vxc,vyc,vzc,prc,vxc,'p11')
+         call flux_calc(flx,vxc,vyc,vzc)
+c
+         call chsign(vxc,ntot1)
+         call chsign(vyc,ntot1)
+         call chsign(vzc,ntot1)
+         call chsign(prc,ntot2)
+c
+         call rzero(vxc2,ntot1)
+         call rzero(vyc2,ntot1)
+         call rzero(vzc2,ntot1)
+         call rzero(prc2,ntot2)
+
+         call plan3_flx(vxc2,vyc2,vzc2,prc2,2)
+         call outpost(vxc2,vyc2,vzc2,prc2,vxc2,'p12')
+
+         call opadd2   (vxc,vyc,vzc,vxc2,vyc2,vzc2)
+         call add2    (prc,prc2,ntot2)
+         call outpost(vxc,vyc,vzc,prc,vxc,'p13')
+
+         call flux_calc(flx,vxc,vyc,vzc)
+         if (nid.eq.0) write(6,*) 'CAR: flow 2:',flx(1),flx(2),flx(3)
+         ifdivf = .false.
+      endif
+      if (nid.eq.0) write(6,*) "param(40) ", param(40)
+      if (nid.eq.0) write(6,*) "param(43) ", param(43)
+c
+c     Compute base flow rate  
+c
+      flx2      = -(flx(1)+flx(3))    ! special outflow bc for turbulence
+      base_flow = 0.5*(flx2-flx(1))
+c
+      if (nid.eq.0)
+     $   write(6,1) istep,base_flow,flx(1),flx2,flx(2)
+    1    format(i9,1p4e13.5,'CAR:  basflow')
+c
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine plan3_flx(vxc,vyc,vzc,prc,ibranch)
+c
+c     Compute pressure and velocity using fractional step method.
+c     (PLAN3).
+c
+c
+      include 'SIZE'
+      include 'TOTAL'
+c
+      real vxc(lx1,ly1,lz1,lelv)
+     $   , vyc(lx1,ly1,lz1,lelv)
+     $   , vzc(lx1,ly1,lz1,lelv)
+     $   , prc(lx2,ly2,lz2,lelv)
+     $   , vdiv(lx2,ly2,lz2,lelv)
+C
+      COMMON /SCRNS/ rw1   (LX1,LY1,LZ1,LELV)
+     $ ,             rw2   (LX1,LY1,LZ1,LELV)
+     $ ,             rw3   (LX1,LY1,LZ1,LELV)
+     $ ,             dv1   (LX1*LY1*LZ1*LELV)
+     $ ,             dv2   (LX1*LY1*LZ1*LELV)
+     $ ,             dv3   (LX1*LY1*LZ1*LELV)
+     $ ,             RESPR (LX2,LY2,LZ2,LELV)
+      COMMON /SCRCH/ H1M2  (LX2*LY2*LZ2,LELV)  ! must force for precond. EPREC
+     $ ,             H2M2  (LX2*LY2*LZ2,LELV)  ! 3/22/02
+      COMMON /SCRVH/ H1    (LX1*LY1*LZ1,LELV)
+     $ ,             H2    (LX1*LY1*LZ1,LELV)
+      COMMON /SCRHI/ H2INV (LX1*LY1*LZ1*LELV)
+c
+      COMMON /SCRSF/ sk1(LX1,LY1,LZ1,LELT)
+     $ ,             sk2(LX1,LY1,LZ1,LELT)
+     $ ,             sk3(LX1,LY1,LZ1,LELT)
+       integer e
+      common /avgrafi/ nsurf,nbrnch,iesurf(900),ifsurf(900),itsurf(900)
+c
+c
+c     Compute velocity, 1st part
+c
+      ntot1  = nx1*ny1*nz1*nelv
+      ntot2  = nx2*ny2*nz2*nelv
+      ifield = 1
+c
+c
+c     Reset mask
+c
+      call opcopy        (sk1,sk2,sk3,v1mask,v2mask,v3mask)
+      call set_flx_msk   (v1mask,v2mask,v3mask,ibranch)
+
+      do iel=1,nelt
+      do iface = 1,2*ldim
+            if (ibranch.eq.1) then
+            if (boundaryID(iface,iel).eq.4) then ! block branch 2
+               cbc(iface,iel,1) = 'W  '
+            endif
+            endif
+            if (ibranch.eq.2) then
+            if (boundaryID(iface,iel).eq.3) then ! block branch 1
+               cbc(iface,iel,1) = 'W  '
+            endif
+            endif
+      enddo
+      enddo
+
+      call bcmask
+      call crs_free(xxth(1))
+      call prinit
+
+      call rzero    (dv1,ntot1)
+      call rzero    (dv2,ntot1)
+      call rzero    (dv3,ntot1)
+      call bcdirvc  (dv1,dv2,dv3,v1mask,v2mask,v3mask)
+      call bcneutr
+c
+      dvmax = 0    !  rescale velocity to have roughly unit norm
+      do i=1,ntot1
+         dvel  = dv1(i)*dv1(i)+dv2(i)*dv2(i)+dv3(i)*dv3(i)
+         dvmax = max(dvmax,dvel)
+      enddo
+      dvmax = glmax(dvmax,1)
+      dvmax = sqrt (dvmax)
+      scale = 10./dvmax
+      call cmult(dv1,scale,ntot1)
+      call cmult(dv2,scale,ntot1)
+      call cmult(dv3,scale,ntot1)
+c
+      intype = -1
+      call cfill    (vdiff,param(2),ntot1)       ! put target viscosity
+      call sethlm   (h1,h2,intype)
+      call ophx     (rw1,rw2,rw3,dv1,dv2,dv3,h1,h2)
+      call ophinv   (dv1,dv2,dv3,rw1,rw2,rw3,h1,h2,tolhv,nmxh)
+      call bcdirvc  (dv1,dv2,dv3,v1mask,v2mask,v3mask)
+      call ssnormd  (dv1,dv2,dv3)
+      call opadd2   (vxc,vyc,vzc,dv1,dv2,dv3)
+c
+c     Compute pressure  (from "incompr")
+c
+
+
+
+      intype = 1
+c1    dtinv  = 1./dt   ! Why not bd(1)/dt ??
+      dtinv  = bd(1)/dt   ! Why not bd(1)/dt ??
+ 
+      call rzero   (h1,ntot1)
+      call copy    (h2,vtrans(1,1,1,1,ifield),ntot1)
+      call cmult   (h2,dtinv,ntot1)
+c     do e=1,nelv
+c       call map12(h1m2(1,e),h1(1,e),e)
+c       call map12(h2m2(1,e),h2(1,e),e)
+c     enddo
+      call invers2 (h2inv,h2,ntot1)
+      call opdiv   (respr,dv1,dv2,dv3)
+      call chsign  (respr,ntot2)
+      call ortho   (respr)
+ 
+c1     Set istep=0 so that h1/h2 will be re-initialized in eprec
+      i_tmp = istep
+      istep = 0
+      call esolver (respr,h1,h2,h2inv,intype)
+      istep = i_tmp
+ 
+      call opgradt (rw1,rw2,rw3,respr)
+      call opbinv  (dv1,dv2,dv3,rw1,rw2,rw3,h2inv)
+
+      call opadd2  (vxc,vyc,vzc,dv1,dv2,dv3)
+      call add2    (prc,respr,ntot2)
+ 
+
+      vxcn = glmin(vxc,ntot1)
+      vycn = glmin(vyc,ntot1)
+      vzcn = glmin(vzc,ntot1)
+      dv1n = glmin(dv1,ntot1)
+      dv2n = glmin(dv2,ntot1)
+      dv3n = glmin(dv3,ntot1)
+c
+      vxcm = glmax(vxc,ntot1)
+      vycm = glmax(vyc,ntot1)
+      vzcm = glmax(vzc,ntot1)
+      dv1m = glmax(dv1,ntot1)
+      dv2m = glmax(dv2,ntot1)
+      dv3m = glmax(dv3,ntot1)
+
+      vdivmx = glmax(vdiv,ntot2)
+      vdivmn = glmin(vdiv,ntot2)
+c
+      if (nid.eq.0) then
+         write(6,1) 'base_vcmn',vxcn,vycn,vzcn
+         write(6,1) 'base_vcmx',vxcm,vycm,vzcm
+         write(6,1) 'base_dvmn',dv1n,dv2n,dv3n
+         write(6,1) 'base_dvmx',dv1m,dv2m,dv3m
+      endif
+    1 format(a9,1p3e14.5)
+c
+c     Reset mask
+      call opcopy  (v1mask,v2mask,v3mask,sk1,sk2,sk3)
+
+
+      do iel=1,nelt
+      do iface = 1,2*ldim
+            if (ibranch.eq.1) then
+            if (boundaryID(iface,iel).eq.4) then
+               cbc(iface,iel,1) = 'O  ' ! unblock branch 2
+            endif
+            endif
+            if (ibranch.eq.2) then
+            if (boundaryID(iface,iel).eq.3) then ! unblock branch 1
+               cbc(iface,iel,1) = 'O  '
+            endif
+            endif
+      enddo
+      enddo
+
+      call bcmask
+      call crs_free(xxth(1))
+      call prinit
+c
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine plan4_flx(vxc,vyc,vzc,prc,ibranch)
+c
+c     Compute pressure and velocity using fractional step method.
+c     (PLAN4).
+c
+c
+      include 'SIZE'
+      include 'TOTAL'
+c
+      real vxc(lx1,ly1,lz1,lelv)
+     $   , vyc(lx1,ly1,lz1,lelv)
+     $   , vzc(lx1,ly1,lz1,lelv)
+     $   , prc(lx2,ly2,lz2,lelv)
+     $   , vdiv(lx2,ly2,lz2,lelv)
+     $   , resv2(lx2,ly2,lz2,lelv)
+C
+      COMMON /SCRNS/ rw1   (LX1,LY1,LZ1,LELV)
+     $ ,             rw2   (LX1,LY1,LZ1,LELV)
+     $ ,             rw3   (LX1,LY1,LZ1,LELV)
+     $ ,             dv1   (LX1,LY1,LZ1,LELV)
+     $ ,             dv2   (LX1,LY1,LZ1,LELV)
+     $ ,             dv3   (LX1,LY1,LZ1,LELV)
+     $ ,             RESPR (LX2*LY2*LZ2,LELV)
+      COMMON /SCRVH/ H1    (LX1*LY1*LZ1,LELV)
+     $ ,             H2    (LX1*LY1*LZ1,LELV)
+      COMMON /SCRHI/ H2INV (LX1*LY1*LZ1*LELV)
+      COMMON /SCRMG/ W1    (LX1*LY1*LZ1,LELV)
+     $ ,             W2    (LX1*LY1*LZ1,LELV)
+     $ ,             W3    (LX1*LY1*LZ1,LELV)
+c
+      COMMON /SCRSF/ sk1(LX1,LY1,LZ1,LELT)
+     $ ,             sk2(LX1,LY1,LZ1,LELT)
+     $ ,             sk3(LX1,LY1,LZ1,LELT)
+      integer e
+      common /avgrafi/ nsurf,nbrnch,iesurf(900),ifsurf(900),itsurf(900)
+      CHARACTER CB*3
+
+c
+c
+c     Compute velocity, 1st part
+c
+      ntot1  = nx1*ny1*nz1*nelv
+      ntot2  = nx2*ny2*nz2*nelv
+
+      ifield = 1
+c
+c
+c     Reset mask
+c
+      call opcopy        (sk1,sk2,sk3,v1mask,v2mask,v3mask)
+      call set_flx_msk   (v1mask,v2mask,v3mask,ibranch)
+
+      do iel=1,nelt
+      do iface = 1,2*ldim
+            if (ibranch.eq.1) then
+            if (boundaryID(iface,iel).eq.4) then ! block branch 2
+               cbc(iface,iel,1) = 'W  '
+            endif
+            endif
+            if (ibranch.eq.2) then
+            if (boundaryID(iface,iel).eq.3) then ! block branch 1
+               cbc(iface,iel,1) = 'W  '
+            endif
+            endif
+      enddo
+      enddo
+
+      call bcmask
+      call crs_free(xxth(1))
+      call prinit
+
+      call rzero    (dv1,ntot1)
+      call rzero    (dv2,ntot1)
+      call rzero    (dv3,ntot1)
+      call bcdirvc  (dv1,dv2,dv3,v1mask,v2mask,v3mask)
+      call bcneutr
+
+      dvmax = 0    !  rescale velocity to have roughly unit norm
+      do i=1,ntot1
+         dvel  = dv1(i,1,1,1)*dv1(i,1,1,1)
+     $          +dv2(i,1,1,1)*dv2(i,1,1,1)
+     $          +dv3(i,1,1,1)*dv3(i,1,1,1)
+         dvmax = max(dvmax,dvel)
+      enddo
+      dvmax = glmax(dvmax,1)
+      dvmax = sqrt (dvmax)
+      scale = 1.0/dvmax
+      call cmult(dv1,scale,ntot1)
+      call cmult(dv2,scale,ntot1)
+      call cmult(dv3,scale,ntot1)
+
+      dv1n = glmin(dv1,ntot1)
+      dv2n = glmin(dv2,ntot1)
+      dv3n = glmin(dv3,ntot1)
+c
+      dv1m = glmax(dv1,ntot1)
+      dv2m = glmax(dv2,ntot1)
+      dv3m = glmax(dv3,ntot1)
+      if (nid.eq.0) then
+         write(6,*) 'base_dvmn1',dv1n,dv2n,dv3n
+         write(6,*) 'base_dvmx1',dv1m,dv2m,dv3m
+      endif
+
+c     Compute pressure 
+      dtbd = BD(1)/DT
+
+      NXYZ1  = lx1*ly1*lz1
+
+      call cfill    (respr,0.0,ntot2)
+      DO IEL=1,NELV
+         DO IFC=1,2*ldim
+            CALL RZERO  (W1(1,IEL),NXYZ1)
+            CALL RZERO  (W2(1,IEL),NXYZ1)
+            IF (ldim.EQ.3)
+     $      CALL RZERO  (W3(1,IEL),NXYZ1)
+            CB = CBC(IFC,IEL,IFIELD)
+            IF (CB.EQ.'v  ') then
+               CALL FACCL3
+     $         (W1(1,IEL),dv1(1,1,1,IEL),UNX(1,1,IFC,IEL),IFC)
+               CALL FACCL3
+     $         (W2(1,IEL),dv2(1,1,1,IEL),UNY(1,1,IFC,IEL),IFC)
+               IF (ldim.EQ.3)
+     $          CALL FACCL3
+     $         (W3(1,IEL),dv3(1,1,1,IEL),UNZ(1,1,IFC,IEL),IFC)
+            ENDIF
+            CALL ADD2   (W1(1,IEL),W2(1,IEL),NXYZ1)
+            IF (ldim.EQ.3)
+     $      CALL ADD2   (W1(1,IEL),W3(1,IEL),NXYZ1)
+            CALL FACCL2 (W1(1,IEL),AREA(1,1,IFC,IEL),IFC)
+            IF (CB.EQ.'v  ') then
+              CALL CMULT(W1(1,IEL),dtbd,NXYZ1)
+            endif
+            CALL SUB2 (RESPR(1,IEL),W1(1,IEL),NXYZ1)
+         enddo
+      enddo
+
+      call invers2  (h1,vtrans,ntot1)
+      call rzero    (h2,ntot1)
+      call ctolspl  (tolspl,respr)
+
+      call hmholtz  ('PRES',prc,respr,h1,h2,pmask,vmult,
+     $                             imesh,tolspl,10000,1)
+      call ortho    (prc)
+
+C     Compute velocity
+
+      call opgrad   (rw1,rw2,rw3,prc)
+      if (ifaxis) call col2 (resv2,omask,n)
+      call opchsgn  (rw1,rw2,rw3)
+
+c     if (ifexplvis) call split_vis ! split viscosity into exp/imp part
+
+      intype = -1
+      call cfill    (vdiff,param(2),ntot1)       ! put target viscosity
+      call sethlm   (h1,h2,intype)
+      call ophinv   (vxc,vyc,vzc,rw1,rw2,rw3,h1,h2,tolhv,nmxh)
+      call opadd2   (vxc,vyc,vzc,dv1,dv2,dv3)
+
+c     if (ifexplvis) call redo_split_vis ! restore vdiff
+
+      vxcn = glmin(vxc,ntot1)
+      vycn = glmin(vyc,ntot1)
+      vzcn = glmin(vzc,ntot1)
+      dv1n = glmin(dv1,ntot1)
+      dv2n = glmin(dv2,ntot1)
+      dv3n = glmin(dv3,ntot1)
+c
+      vxcm = glmax(vxc,ntot1)
+      vycm = glmax(vyc,ntot1)
+      vzcm = glmax(vzc,ntot1)
+      dv1m = glmax(dv1,ntot1)
+      dv2m = glmax(dv2,ntot1)
+      dv3m = glmax(dv3,ntot1)
+
+      vdivmx = glmax(vdiv,ntot2)
+      vdivmn = glmin(vdiv,ntot2)
+c
+      if (nid.eq.0) then
+         write(6,1) 'base_vcmn',vxcn,vycn,vzcn
+         write(6,1) 'base_vcmx',vxcm,vycm,vzcm
+         write(6,1) 'base_dvmn',dv1n,dv2n,dv3n
+         write(6,1) 'base_dvmx',dv1m,dv2m,dv3m
+      endif
+    1 format(a9,1p3e14.5)
+c
+c     Reset mask
+      call opcopy  (v1mask,v2mask,v3mask,sk1,sk2,sk3)
+
+      do iel=1,nelt
+      do iface = 1,2*ldim
+            if (ibranch.eq.1) then
+            if (boundaryID(iface,iel).eq.4) then
+               cbc(iface,iel,1) = 'O  ' ! unblock branch 2
+            endif
+            endif
+            if (ibranch.eq.2) then
+            if (boundaryID(iface,iel).eq.3) then ! unblock branch 1
+               cbc(iface,iel,1) = 'O  '
+            endif
+            endif
+      enddo
+      enddo
+
+      call bcmask
+      call crs_free(xxth(1))
+      call prinit
+c
+      return
+      end
+
+
+c-----------------------------------------------------------------------
+c     Womersley profile below
+c-----------------------------------------------------------------------
+      function womer(radius,time)
+c
+       real radius, time
+       integer icalld
+       save    icalld
+       data    icalld /0/
+
+       real    acoeff(100),bcoeff(100),alpha(100)
+       complex qc1,qc2,ae,ayj0,zivalue,sq
+
+       common /womers_coeff/ ccoeff(100), cccoeff(100)
+       complex ccoeff,cccoeff
+        
+       common /womers_aj/ aj1(100), aj0(100)
+       complex aj1, aj0
+
+       save /womers_coeff/
+       save /womers_aj/
+c
+       one = 1.
+       pi  = 4.*atan(one)
+c
+c      Results are in m/s
+c
+c      All values are in mks units, except for Q, which is in liters/min.
+c
+       ncoeff = 20
+       radread = 0.004
+       vis = 0.0035
+       rho = 1050.0
+       qmean = 0.25
+       freqbpm = 60.
+       qscale=-8.*vis/pi/(radread**4)/1000./60.
+       cmean=-qscale*qmean
+
+       omega=freqbpm*2.*pi/60.
+       zivalue=cmplx(0.,1.)
+       two = 2.
+       sq2 = sqrt(two)/2.
+       sq=cmplx(sq2,-sq2)
+       zero=0.0
+
+
+       if (icalld.eq.0) then
+         icalld=1
+         open(unit=81,file='cl.fft')
+         read(81,*)jmax,imax,start,end,vis,rho,radread,freqbpm,womp
+         write(6,*)'  CAR:Reading fft info'
+         read(81,*)itype,ncoeff,qmean
+         do 10 i=1,ncoeff
+           read(81,*)Acoeff(I),Bcoeff(I)
+  10     continue
+         close(81)
+c
+c      write(6,*) 'visrho:',vis,rho, qscale, qmean
+c
+       do 40 i=1,ncoeff
+         ccoeff(i)=cmplx(Acoeff(i),-Bcoeff(i))
+ 40    continue
+       endif
+
+
+
+
+       do k=1,ncoeff
+         temp = float(k)*omega*rho/vis
+         alph=radread*sqrt(temp)
+         call j0j1(alph,bessela,besselb,besselc,besseld,itnum)
+
+         aj1(k)=cmplx(besselc,besseld)
+         aj0(k)=cmplx(bessela,besselb)
+         qc1=-zivalue+2.*aj1(k)/alph*sq/aj0(k)
+         qc2=cmplx(pi*radread**4/alph**2/vis*1000.*60.,zero)
+         cccoeff(k)=ccoeff(k)/qc1/qc2
+       enddo
+
+
+c
+       velocity =-cmean*radread*radread/4.0/vis*(radius**2-1.)
+c      write(6,*) 'velocity:',velocity,cmean,radius,radread
+c
+c
+       period = 60./freqbpm 
+       theta=time/period*360.
+       do 120 k=1,ncoeff
+         temp = float(k)*omega*rho/vis
+         alph=radread*sqrt(temp)
+         omegat=float(k)*omega*time
+         ae=cccoeff(k)*cmplx(cos(omegat),sin(omegat))
+         ahere=alph*radius
+         call j0j1(ahere,a1,a2,d1,d2,itnum)
+         ayj1=cmplx(d1,d2)
+         ayj0=cmplx(a1,a2)
+         wcomp=(ayj0/aj0(k)-1.0)*zivalue*ae
+         wtemp=radread*radread/vis/(alph**2)*real(wcomp)
+         velocity=wtemp+velocity
+ 120   continue
+c
+       u = 0
+       v = 0
+       w = velocity
+c      write(6,*) 'w' , velocity
+       womer = w
+c      write(6,1200)time,theta,radius,U,V,W
+ 1200  format( f8.6,2x,f5.1,2x,5(f11.8,2x) )
+ 1201  format( 8(f11.8,2x) )
+c
+       return
+       end
+c
+
+CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
+C
+C     This program computes the Kelvin Functions otherwise know as the
+C     BER BEI functions
+C
+C     Solution was taken from Milton Abramowitz and I.A. Stegun text
+C     "Handbook of Mathematical Functions with Formulas Graphs, and
+C     Mathematical Tables", Dover Publications, Inc. New York, 1972,
+C     pages 379 and 430. The maximum value that may be calculated is
+C     z=90 because the factorial has a limitation of 90
+c
+CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
+C
+C     The routine J0J1 calculates the BER BEI quantities for order
+C     zero and one
+C
+      subroutine j0j1(ZBESSEL,ber0,bei0,ber1,bei1,n)
+C
+C     Double precision is employed for better resolution
+C
+      REAL*8 R0,I0,R1,I1,BER0Z,BEI0Z,BER1Z,BEI1Z,TEMP0,TEMP1,PI,
+     & ERRMAX,zbessel2,FAC,zbessel,BER0,BEI0,BER1,BEI1
+      INTEGER*4 I,N
+
+C
+C     If the aurgument is ZERO then values are designated immediately
+C
+      ERRMAX=1.0E-6
+      IF(zbessel.LT.0.0000001)THEN
+      R0=1.0
+      I0=0.0
+      R1=0.0
+      I1=0.0
+      GOTO 199
+      ENDIF
+      PI=3.141592653589793
+C
+C     The sums are initialized to their proper values
+C
+      IC1=0
+      IC2=0
+      IC3=0
+      IC4=0
+      BER0Z=1.0
+      BEI0Z=0.0
+      BER1Z=COS(3./4.*PI)
+      BEI1Z=SIN(3./4.*PI)
+C
+C     Loop is to 100 but this is not really nescessary convergence is
+C     generally obtained quickly
+C
+      zbessel2=0.25*zbessel*zbessel
+      DO 10 I=1,100
+      TEMP0=zbessel2**I/(FAC(I))**2
+
+      I0=BEI0Z+TEMP0*SIN(0.5*FLOAT(I)*PI)
+      IF(ABS(TEMP0/I0).LT.ERRMAX.AND.I.GT.2)  IC1=1
+
+      R0=BER0Z+TEMP0*COS(0.5*FLOAT(I)*PI)
+      IF(ABS(TEMP0/R0).LT.ERRMAX.AND.I.GT.2)  IC2=1
+
+      TEMP1=TEMP0/(FLOAT(I)+1)
+
+      I1=BEI1Z+TEMP1*SIN((3./4.+0.5*FLOAT(I))*PI)
+      IF(ABS(TEMP1/I1).LT.ERRMAX.AND.I.GT.2)  IC3=1
+
+      R1=BER1Z+TEMP1*COS((3./4.+0.5*FLOAT(I))*PI)
+      IF(ABS(TEMP1/R1).LT.ERRMAX.AND.I.GT.2)  IC4=1
+
+      IF(IC1.EQ.1.AND.IC2.EQ.1.AND.IC3.EQ.1.AND.IC4.EQ.1) GOTO 199
+
+      BER0Z=R0
+      BEI0Z=I0
+      BER1Z=R1
+      BEI1Z=I1
+  10  CONTINUE
+ 199  N=I
+      BER0=R0
+      BEI0=I0
+      BER1=R1*zbessel/2.
+      BEI1=I1*zbessel/2.
+      RETURN
+      END
+
+
+      FUNCTION FAC(N)
+      REAL*8 FAC,F
+      INTEGER*4 JJ,N
+      IF(N.EQ.0) THEN
+      FAC=1.
+      GOTO  112
+      ENDIF
+      F=FLOAT(N)
+      DO 111 JJ=1,N-1
+      F=F*(N-JJ)
+ 111  CONTINUE
+      FAC=F
+ 112  RETURN
+      END
+c-----------------------------------------------------------------------
+      subroutine norm3dv(u1,u2,u3)
+C
+C     normalize a 3 component vector
+C
+      vlngth = u1*u1+u2*u2+u3*u3
+      if (vlngth.gt.0) then
+         vlngth = sqrt(vlngth)
+         u1     = u1 / vlngth
+         u2     = u2 / vlngth
+         u3     = u3 / vlngth
+      endif
+C
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine set_womer(time_womer)
+c
+c     Evaluate Womersely profile at several knot points in r, and set
+c     up a spline along these points.
+c
+      INCLUDE 'SIZE'   
+      INCLUDE 'TSTEP'  
+c
+      parameter (kn=20)
+      common /womers/ rj(0:kn),uj(0:kn),ujr(0:kn),ujrr(0:kn)
+c
+      dr = 1./kn
+      do j=0,kn
+         r       = j*dr
+         rj (j)  = r
+         uj (j)  = womer(r,time_womer)
+      enddo
+c
+c     Set up clamped spline on [0,1].
+c
+      n1   = kn+1
+      big  = 1.e24
+      zero = 0.
+      call splinen(ujr,ujrr,rj,uj,n1,zero,big)
+c
+      return
+      end
+c-----------------------------------------------------------------------
+      function eval_womer(r)
+c
+      parameter (kn=20)
+      common /womers/ rj(0:kn),uj(0:kn),ujr(0:kn),ujrr(0:kn)
+c
+      eval_womer = 0.
+      if (r.gt.1.0) return
+c
+      n1 = kn+1
+      call splintn(y,yp,ypp,r,rj,uj,ujrr,n1,ierr)
+      eval_womer = y
+c
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine splinen(u,y2,x,y,n,yp1,ypn)
+c
+c     p. 88-89, numerical recipes
+c
+      real u(n),y2(n),x(n),y(n)   ! u is a work array, filled with y' 
+      big = 1.e20
+c
+      if (yp1.gt.big) then
+         y2(1) = 0
+         u (1) = 0
+      else
+         dx    = x(2)-x(1)
+         dy    = y(2)-y(1)
+         y2(1) = -.5
+         u (1) = 3.*(dy/dx - yp1) / dx
+      endif
+c
+      do i=2,n-1
+         ir=i+1
+         il=i-1
+         sig=(x(i)-x(il))/(x(ir)-x(il))
+         p=sig*y2(il)+2.
+         y2(i)=(sig-1.)/p
+         u(i)= ( 6.*
+     $     ( (y(ir)-y(i))/(x(ir)-x(i))-(y(i)-y(il))/ (x(i)-x(il) ) )
+     $            / (x(ir)-x(il))
+     $    - sig*u(il) )/p
+      enddo
+c
+      if (ypn.gt.big) then
+         qn=0.0
+         un=0.0
+      else
+         dx    = x(n)-x(n-1)
+         dy    = y(n)-y(n-1)
+         qn    = 0.5
+         un    = -3.*(dy/dx - ypn) / dx
+      endif
+c
+      y2(n) = (un-qn*u(n-1)) / (qn*y2(n-1)+1.)
+      do k=n-1,1,-1
+         y2(k)=y2(k)*y2(k+1)+u(k)
+      enddo
+c
+c     Stuff y' into u:
+c
+      do k=1,n-1
+         dx = x(k+1) - x(k)
+         dy = y(k+1) - y(k)
+         yp = dy/dx  - (2*y2(k) + y2(k+1))*dx/6.
+         u(k) = yp
+      enddo
+      u(n)  = dy/dx  + (y2(n-1) + 2*y2(n))*dx/6.
+c
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine splintn(y,yp,ypp,x,xa,ya,y2a,n,ierr)
+c
+c     Returns y(x), y'(x), y"(x), after "spline" call.
+c
+c
+c     p. 88-89, numerical recipes
+c
+      real xa(n),ya(n),y2a(n)
+c
+      integer klo_last
+      save    klo_last
+      data    klo_last /-99/
+c
+      logical ifbracket
+c
+      ierr = 0
+      y    = 0
+      yp   = 0
+      ypp  = 0
+c
+      ifbracket = .false.
+      if (0.lt.klo_last.and.klo_last.lt.n) then
+         klo = klo_last 
+         khi = klo + 1
+         if (xa(klo).le.x.and.x.le.xa(khi)) ifbracket=.true.
+      endif
+c
+      if (.not.ifbracket) then
+c
+c        Check total range   (assumption is that abscissa is sorted)
+c
+         if (x.lt.xa(1)) then
+            y = ya(1)
+            ierr = -1
+            return
+         elseif (x.gt.xa(n)) then
+            y = ya(n)
+            ierr = -2
+            return
+         endif
+c
+c        Search
+c
+         klo=1
+         khi=n
+    1    if ((khi-klo).gt.1) then
+           k=(khi+klo)/2
+           if (xa(k).gt.x) then
+              khi=k
+           else
+              klo=k
+           endif
+           goto 1
+        endif
+      endif
+c
+      klo_last = klo
+c
+      x1  = xa(klo)
+      x2  = xa(khi)
+      y1  = ya(klo)
+      y2  = ya(khi)
+      y21 = y2a(klo)
+      y22 = y2a(khi)
+c
+      dx = x2-x1
+      dy = y2-y1
+      if (dx.eq.0) then
+         write(6,*) xa(khi), 'ERROR in splint',khi
+         ierr = 1
+         return
+      endif
+c
+      a=(x2-x)/dx
+      b=(x-x1)/dx
+c
+      y   = a*y1+b*y2 + ((a**3- a)*y21 + (b**3- b)*y22)*(dx**2)/6.
+      yp  = dy/dx -     ((3*a*a-1)*y21 - (3*b*b-1)*y22)* dx    /6.
+      ypp = a*y21+b*y22
+c
+      return
+      end
+c-----------------------------------------------------------------------
+c
+c     surface normal matching
+c
+c-----------------------------------------------------------------------
+      subroutine match_normal
+c
+      include 'SIZE'
+      include 'TOTAL'
+      common /scruz/ avgn(lx1,ly1,lz1,lelt,3)
+      common /scrvh/ wnx(lx1,lz1),wny(lx1,lz1),wnz(lx1,lz1)
+     $             , xtm(lx1,lz1),ytm(lx1,lz1),ztm(lx1,lz1)
+     $             , sidepts(4)
+      integer fc
+c
+c
+      call geom_reset(1)
+c
+      ntot  = nx1*ny1*nz1*nelv
+c
+      if (ifheat) ifield=2
+      if (ifflow) ifield=1
+c
+      call avg_nrml(avgn)
+c
+c     Now set up faces
+c
+      call setside
+c
+      nfaces = 2*ndim
+      do ie=1,nelv
+         do is=1,nfaces
+            fc = eface(is)
+            if (cbc(fc,ie,ifield).eq.'W  ') then
+               call facopb(wnx,avgn(1,1,1,ie,1),fc)
+               call facopb(wny,avgn(1,1,1,ie,2),fc)
+               call facopb(wnz,avgn(1,1,1,ie,3),fc)
+               call facopb(xtm,xm1 (1,1,1,ie)  ,fc)
+               call facopb(ytm,ym1 (1,1,1,ie)  ,fc)
+               call facopb(ztm,zm1 (1,1,1,ie)  ,fc)
+               call getside_pts(sidepts,ie,is)
+               ieg=lglel(ie)
+               call set_cubic_face(xtm,ytm,ztm,wnx,wny,wnz,sidepts,ieg)
+               call facopc(xm1(1,1,1,ie),xtm,fc)
+               call facopc(ym1(1,1,1,ie),ytm,fc)
+               call facopc(zm1(1,1,1,ie),ztm,fc)
+            endif
+         enddo
+         call gh_face_extend(xm1(1,1,1,ie),zgm1,nx1,2
+     $                      ,avgn(1,1,1,ie,1),avgn(1,1,1,ie,2))
+         call gh_face_extend(ym1(1,1,1,ie),zgm1,nx1,2
+     $                      ,avgn(1,1,1,ie,1),avgn(1,1,1,ie,2))
+         call gh_face_extend(zm1(1,1,1,ie),zgm1,nx1,2
+     $                      ,avgn(1,1,1,ie,1),avgn(1,1,1,ie,2))
+      enddo
+c
+      write(6,*) nid,'CAR:  leave match normal'
+      return
+      end
+c-----------------------------------------------------------------------
+c-----------------------------------------------------------------------
+      subroutine wire_extend_el_xyz(x,y,z,zg,n,e,f,g,if3d,w)
+c
+c     Elemental routine - call once for each element
+c
+c     Extend 12 edges to volume via 2 rounds of Gordon-Hall
+c
+c       1st round:   edges to faces
+c       2nd round:   faces to volume
+c
+c                                            pff 8/5/99
+c
+c     Inputs:   x,y,z with vertex distortion already present
+c               zg  --  array of n GLL points  on [-1,1]
+c               e(n,n,n) -- vector array containting
+c                               containing edge distortion info
+c
+c               w(n,n,2)  work array
+c
+c     Output:   x  vertex + edge distortion mapped to volume
+c
+      real x(n,n,n),y(n,n,n),z(n,n,n)
+      real zg(n)
+      real e(n,n,n),f(n,n,n),g(n,n,n)
+      real w(n,n,n,2)
+c
+c
+c     Phase 1:  Extend wire-frame edges to face interiors using 2D GH.
+c
+      call wire_extend_el(x,zg,n,e,if3d,w)
+      call wire_extend_el(y,zg,n,f,if3d,w)
+      call wire_extend_el(z,zg,n,g,if3d,w)
+c
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine wire_extend_el(x,zg,n,e,if3d,w)
+c
+c     Elemental routine - call once for each element
+c
+c     Extend 12 edges to volume via 2 rounds of Gordon-Hall
+c
+c       1st round:   edges to faces
+c       2nd round:   faces to volume
+c
+c                                            pff 8/5/99
+c
+c     Inputs:   x with vertex distortion already present
+c               zg  --  array of n GLL points  on [-1,1]
+c               e(n,n,n) -- vector array containting
+c                               containing edge distortion info
+c
+c
+c     Output:   x  vertex + edge distortion mapped to volume
+c
+      real x(n,n,n)
+      real zg(n)
+      real e(n,n,n)
+      real w(0:1)
+c
+c
+c     Phase 1:  Extend wire-frame edges to face interiors using 2D GH.
+c
+c     Faces: 1-2  x;  3-4 y; 5-6 z.
+c
+c     face 1 & 2:
+c
+      do i=1,n,n-1
+      do k=2,n-1
+      do j=2,n-1
+c        Note corner values of e() assumed zero!!
+         dif      = e(i,1,k)*0.5*(1-zg(j))
+     $            + e(i,n,k)*0.5*(1+zg(j))
+     $            + e(i,j,1)*0.5*(1-zg(k))
+     $            + e(i,j,n)*0.5*(1+zg(k))
+         x(i,j,k) = x(i,j,k) + dif
+      enddo
+      enddo
+      enddo
+c
+c     face 3 & 4:
+      do j=1,n,n-1
+      do k=2,n-1
+      do i=2,n-1
+         dif      = e(1,j,k)*0.5*(1-zg(i))
+     $            + e(n,j,k)*0.5*(1+zg(i))
+     $            + e(i,j,1)*0.5*(1-zg(k))
+     $            + e(i,j,n)*0.5*(1+zg(k))
+         x(i,j,k) = x(i,j,k) + dif
+      enddo
+      enddo
+      enddo
+c
+c     face 5 & 6:
+      do k=1,n,n-1
+      do j=2,n-1
+      do i=2,n-1
+         dif      = e(1,j,k)*0.5*(1-zg(i))
+     $            + e(n,j,k)*0.5*(1+zg(i))
+     $            + e(i,1,k)*0.5*(1-zg(j))
+     $            + e(i,n,k)*0.5*(1+zg(j))
+         x(i,j,k) = x(i,j,k) + dif
+      enddo
+      enddo
+      enddo
+c
+c     Extend 12 edges
+c
+      do i=2,n-1
+         x(i,1,1) = x(i,1,1) + e(i,1,1)
+         x(i,n,1) = x(i,n,1) + e(i,n,1)
+         x(i,1,n) = x(i,1,n) + e(i,1,n)
+         x(i,n,n) = x(i,n,n) + e(i,n,n)
+c
+         x(1,i,1) = x(1,i,1) + e(1,i,1)
+         x(n,i,1) = x(n,i,1) + e(n,i,1)
+         x(1,i,n) = x(1,i,n) + e(1,i,n)
+         x(n,i,n) = x(n,i,n) + e(n,i,n)
+c
+         x(1,1,i) = x(1,1,i) + e(1,1,i)
+         x(n,1,i) = x(n,1,i) + e(n,1,i)
+         x(1,n,i) = x(1,n,i) + e(1,n,i)
+         x(n,n,i) = x(n,n,i) + e(n,n,i)
+      enddo
+c
+c     Extend faces into interior via gordon hall
+c
+      ntot = n*n*n
+      call GH_face_extend(x,zg,n,2,w,w(ntot))
+c
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine gh_face_extend(x,zg,n,gh_type,e,v)
+c
+c     Extend faces into interior via gordon hall
+c
+c     gh_type:  1 - vertex only
+c               2 - vertex and edges
+c               3 - vertex, edges, and faces
+c
+c
+      real x(n,n,n)
+      real zg(n)
+      real e(n,n,n)
+      real v(n,n,n)
+      integer gh_type
+c
+c     Build vertex interpolant
+c
+      ntot=n*n*n
+      call rzero(v,ntot)
+      do kk=1,n,n-1
+      do jj=1,n,n-1
+      do ii=1,n,n-1
+         do k=1,n
+         do j=1,n
+         do i=1,n
+            si       = 0.5*((n-ii)*(1-zg(i))+(ii-1)*(1+zg(i)))/(n-1)
+            sj       = 0.5*((n-jj)*(1-zg(j))+(jj-1)*(1+zg(j)))/(n-1)
+            sk       = 0.5*((n-kk)*(1-zg(k))+(kk-1)*(1+zg(k)))/(n-1)
+            v(i,j,k) = v(i,j,k) + si*sj*sk*x(ii,jj,kk)
+         enddo
+         enddo
+         enddo
+      enddo
+      enddo
+      enddo
+      if (gh_type.eq.1) then
+         call copy(x,v,ntot)
+         return
+      endif
+c
+c
+c     Extend 12 edges
+      call rzero(e,ntot)
+c
+c     x-edges
+c
+      do kk=1,n,n-1
+      do jj=1,n,n-1
+         do k=1,n
+         do j=1,n
+         do i=1,n
+            hj       = 0.5*((n-jj)*(1-zg(j))+(jj-1)*(1+zg(j)))/(n-1)
+            hk       = 0.5*((n-kk)*(1-zg(k))+(kk-1)*(1+zg(k)))/(n-1)
+            e(i,j,k) = e(i,j,k) + hj*hk*(x(i,jj,kk)-v(i,jj,kk))
+         enddo
+         enddo
+         enddo
+      enddo
+      enddo
+c
+c     y-edges
+c
+      do kk=1,n,n-1
+      do ii=1,n,n-1
+         do k=1,n
+         do j=1,n
+         do i=1,n
+            hi       = 0.5*((n-ii)*(1-zg(i))+(ii-1)*(1+zg(i)))/(n-1)
+            hk       = 0.5*((n-kk)*(1-zg(k))+(kk-1)*(1+zg(k)))/(n-1)
+            e(i,j,k) = e(i,j,k) + hi*hk*(x(ii,j,kk)-v(ii,j,kk))
+         enddo
+         enddo
+         enddo
+      enddo
+      enddo
+c
+c     z-edges
+c
+      do jj=1,n,n-1
+      do ii=1,n,n-1
+         do k=1,n
+         do j=1,n
+         do i=1,n
+            hi       = 0.5*((n-ii)*(1-zg(i))+(ii-1)*(1+zg(i)))/(n-1)
+            hj       = 0.5*((n-jj)*(1-zg(j))+(jj-1)*(1+zg(j)))/(n-1)
+            e(i,j,k) = e(i,j,k) + hi*hj*(x(ii,jj,k)-v(ii,jj,k))
+         enddo
+         enddo
+         enddo
+      enddo
+      enddo
+c
+      call add2(e,v,ntot)
+c
+      if (gh_type.eq.2) then
+         call copy(x,e,ntot)
+         return
+      endif
+c
+c     Extend faces
+c
+      call rzero(v,ntot)
+c
+c     x-edges
+c
+      do ii=1,n,n-1
+         do k=1,n
+         do j=1,n
+         do i=1,n
+            hi       = 0.5*((n-ii)*(1-zg(i))+(ii-1)*(1+zg(i)))/(n-1)
+            v(i,j,k) = v(i,j,k) + hi*(x(ii,j,k)-e(ii,j,k))
+         enddo
+         enddo
+         enddo
+      enddo
+c
+c     y-edges
+c
+      do jj=1,n,n-1
+         do k=1,n
+         do j=1,n
+         do i=1,n
+            hj       = 0.5*((n-jj)*(1-zg(j))+(jj-1)*(1+zg(j)))/(n-1)
+            v(i,j,k) = v(i,j,k) + hj*(x(i,jj,k)-e(i,jj,k))
+         enddo
+         enddo
+         enddo
+      enddo
+c
+c     z-edges
+c
+      do kk=1,n,n-1
+         do k=1,n
+         do j=1,n
+         do i=1,n
+            hk       = 0.5*((n-kk)*(1-zg(k))+(kk-1)*(1+zg(k)))/(n-1)
+            v(i,j,k) = v(i,j,k) + hk*(x(i,j,kk)-e(i,j,kk))
+         enddo
+         enddo
+         enddo
+      enddo
+c
+      call add2(v,e,ntot)
+      call copy(x,v,ntot)
+c
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine avg_nrml(avgn)
+c
+      include 'SIZE'
+      include 'TOTAL'
+c
+      real avgn(lx1,ly1,lz1,lelt,3)
+c
+      ntot  = nx1*ny1*nz1*nelv
+      do i=1,ndim
+         call rzero(avgn(1,1,1,1,i),ntot)
+      enddo
+c
+      nfaces = 2*ndim
+      do ie=1,nelv
+      do is=1,nfaces
+         if (cbc(is,ie,ifield).eq.'W  ') then
+            call facopc(avgn(1,1,1,ie,1),unx(1,1,is,ie),is)
+            call facopc(avgn(1,1,1,ie,2),uny(1,1,is,ie),is)
+            if (if3d) call facopc(avgn(1,1,1,ie,3),unz(1,1,is,ie),is)
+         endif
+      enddo
+      enddo
+      do i=1,ndim
+         call dssum(avgn(1,1,1,1,i),nx1,ny1,nz1)
+      enddo
+c
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine getside_pts(sidepts,ie,ifc)
+c
+      include 'SIZE'
+      include 'INPUT'
+      include 'SCRCT'
+      real sidepts(3,4)
+c
+c     Get midpoints  (stored in volatile 'SCRCT')
+c
+      integer adj_face(4,6)
+      save    adj_face
+      data    adj_face /
+     $        3,4,5,6  ,
+     $        3,4,5,6  ,
+     $        1,2,5,6  ,
+     $        1,2,5,6  ,
+     $        1,2,3,4  ,
+     $        1,2,3,4  /
+c
+      if (if3d) then
+         do i=1,4
+         do j=1,ndim
+            sidepts(j,i) = side(j,adj_face(i,ifc),ie)
+         enddo
+         enddo
+      else
+         do i=1,2
+         do j=1,ndim
+            sidepts(j,i) = side(j,adj_face(i,ifc),ie)
+         enddo
+         enddo
+      endif
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine facopb (b,a,iface1)
+c
+c     Copy A to B
+c     on the surface IFACE1 of an element.
+c
+c         A1,A2,A3 have the (NX,NY,NZ) data structure
+c         B has the (NX,NY,IFACE1) data structure
+c         IFACE1 is in the preprocessor notation
+c         IFACE  is the dssum notation.
+c
+      include 'SIZE'
+      include 'TOPOL'
+      real a(lx1,ly1,lz1),b(lx1,ly1)
+C
+C     Set up counters
+C
+      call dsset(nx1,ny1,nz1)
+      iface  = eface1(iface1)
+      js1    = skpdat(1,iface)
+      jf1    = skpdat(2,iface)
+      jskip1 = skpdat(3,iface)
+      js2    = skpdat(4,iface)
+      jf2    = skpdat(5,iface)
+      jskip2 = skpdat(6,iface)
+      i = 0
+C
+      if (ndim.eq.2) then
+         do j2=js2,jf2,jskip2
+         do j1=js1,jf1,jskip1
+            i = i+1
+            b(i,1) = a(j1,j2,1)
+         enddo
+         enddo
+      else
+         do j2=js2,jf2,jskip2
+         do j1=js1,jf1,jskip1
+            i = i+1
+            b(i,1) = a(j1,j2,1)
+         enddo
+         enddo
+      endif
+c
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine facopc (a,b,iface1)
+c
+c     Copy A to B
+c     on the surface IFACE1 of an element.
+c
+c         A1,A2,A3 have the (NX,NY,NZ) data structure
+c         B has the (NX,NY,IFACE1) data structure
+c         IFACE1 is in the preprocessor notation
+c         IFACE  is the dssum notation.
+c
+      include 'SIZE'
+      include 'TOPOL'
+      real a(lx1,ly1,lz1),b(lx1,ly1)
+C
+C     Set up counters
+C
+      call dsset(nx1,ny1,nz1)
+      iface  = eface1(iface1)
+      js1    = skpdat(1,iface)
+      jf1    = skpdat(2,iface)
+      jskip1 = skpdat(3,iface)
+      js2    = skpdat(4,iface)
+      jf2    = skpdat(5,iface)
+      jskip2 = skpdat(6,iface)
+      i = 0
+C
+      if (ndim.eq.2) then
+         do j2=js2,jf2,jskip2
+         do j1=js1,jf1,jskip1
+            i = i+1
+            a(j1,j2,1) = b(i,1)
+         enddo
+         enddo
+      else
+         do j2=js2,jf2,jskip2
+         do j1=js1,jf1,jskip1
+            i = i+1
+            a(j1,j2,1) = b(i,1)
+         enddo
+         enddo
+      endif
+c
+      return
+      end
+c-----------------------------------------------------------------------
+
+c-----------------------------------------------------------------------
+      subroutine compute_edge(x,p3,n1,n2,n,z,dmax,ieg)
+c
+      real x(3,n),z(n)
+      real p1(3),p2(3),p3(3),n1(3),n2(3)
+c
+      real xih(3),eth(3)
+      real pn1(2),pn2(2)
+c
+      logical ifok
+c
+c     Input:  p1-p3, n1-n2        Output, distribution of xyz points in x()
+c
+c
+c
+c          ^ n1                n2 ^
+c           \                    /
+c         p1 o------------------o p2
+c
+c
+c
+c
+c                     o
+c                     p3
+c
+c
+c    NOTE:  updated to dissallow huge changes in surface displacement
+c
+c
+c
+      call copy(p1,x(1,1),3)
+      call copy(p2,x(1,n),3)
+c
+c
+c     Unit "x" vector --- xi_hat
+c
+      call sub3(xih,p2,p1,3)
+      delta = sqrt(vlsc2(xih,xih,3))
+      di    = 1./delta
+      call cmult(xih,di,3)
+c
+c     Unit "y" vector --- eta_hat
+c
+      call sub3(eth,p3,p1,3)
+      s  = -vlsc2(xih,eth,3)
+      call add2s2(eth,xih,s,3)
+      scale = sqrt(vlsc2(eth,eth,3))
+      di    = -1./scale
+      call cmult(eth,di,3)
+c
+c
+c     project unit normals onto (xi,eta) plane
+c
+      pn1(1) = vlsc2(xih,n1,3)
+      pn1(2) = vlsc2(eth,n1,3)
+      pn2(1) = vlsc2(xih,n2,3)
+      pn2(2) = vlsc2(eth,n2,3)
+c
+c     Get cubic coefficients to match slopes
+c
+      a = -pn1(1)/pn1(2)
+      b = -pn2(1)/pn2(2)
+c
+c     Check for max displacement
+c
+      do loop=1,40
+         ifok = .true.
+         do i=2,n-1
+            xi = 0.5*(z(i)+1.)
+            eta = xi*(1.-xi)*(a*(1.-xi)-b*xi)
+            if (abs(eta).gt.dmax) ifok=.false.
+         enddo
+         if (ifok) goto 11
+         if (abs(a).gt.abs(b)) then
+c           a = 0.71*a
+            a = 0.91*a
+         else
+c           b = 0.71*b
+            b = 0.91*b
+         endif
+         nid = mynode()
+         write(6,6) nid,'CAR:  rescale1: ',a,b,ieg,loop
+    6    format(i5,a10,1p2e14.5,i9,i4)
+      enddo
+   11 continue
+c
+c     Check for max "negative" displacement
+c
+      do loop=1,20
+         ifok = .true.
+         do i=2,n-1
+            xi = 0.5*(z(i)+1.)
+            eta = xi*(1.-xi)*(a*(1.-xi)-b*xi)
+            if (eta.lt.-0.3*dmax) ifok=.false.
+         enddo
+         if (ifok) goto 12
+         if (a.lt.0) then
+            a = 0.91*a
+c           a = 0.21*a
+         endif
+         if (b.gt.0) then
+            b = 0.91*b
+c           b = 0.21*b
+         endif
+         nid = mynode()
+         write(6,6) nid,'CAR:  rescale2: ',a,b,ieg,loop
+      enddo
+   12 continue
+c
+c
+c     Crank out the points
+c
+      do i=2,n-1
+         xi = 0.5*(z(i)+1.)
+         eta = xi*(1.-xi)*(a*(1.-xi)-b*xi)
+         call copy  (x(1,i),p1,3)
+         call add2s2(x(1,i),xih,delta*xi ,3)
+         call add2s2(x(1,i),eth,delta*eta,3)
+      enddo
+c
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine set_cubic_face(x,y,z,xn,yn,zn,sidepts,ieg)
+c
+      include 'SIZE'
+      include 'WZ'
+c
+      real  x(lx1,lz1), y(lx1,lz1), z(lx1,lz1)
+      real xn(lx1,lz1),yn(lx1,lz1),zn(lx1,lz1)
+      real sidepts(3,4)
+c
+      real xyz(3,lx1)
+c
+      real n1(3),n2(3)
+c
+c
+c     Input:  p1-p3, n1-n2        Output, distribution of xyz points in x()
+c
+c
+c
+c          ^ n1                n2 ^
+c           \                    /
+c         p1 o------------------o p2
+c
+c
+c
+c
+c                     o
+c                     p3
+c
+      if (ndim.eq.3) then
+c
+c
+c      get edge data
+c
+c        sides 1 and 2   (pf notation)
+c
+         do i=1,nx1,nx1-1
+            do j=1,ny1
+               xyz(1,j) = x(i,j)
+               xyz(2,j) = y(i,j)
+               xyz(3,j) = z(i,j)
+            enddo
+c
+            n1(1) = xn(i,1)
+            n1(2) = yn(i,1)
+            n1(3) = zn(i,1)
+c
+            n2(1) = xn(i,ny1)
+            n2(2) = yn(i,ny1)
+            n2(3) = zn(i,ny1)
+c
+            is = 1
+            if (i.eq.nx1) is = 2
+c
+            call compute_edge(xyz,sidepts(1,is),n1,n2,ny1,zgm1,.45,ieg)
+c
+            do j=2,ny1-1
+               x(i,j) = xyz(1,j)
+               y(i,j) = xyz(2,j)
+               z(i,j) = xyz(3,j)
+            enddo
+         enddo
+c
+c        sides 3 and 4
+c
+         do j=1,ny1,ny1-1
+            do i=1,nx1
+               xyz(1,i) = x(i,j)
+               xyz(2,i) = y(i,j)
+               xyz(3,i) = z(i,j)
+            enddo
+c
+            n1(1) = xn(1,j)
+            n1(2) = yn(1,j)
+            n1(3) = zn(1,j)
+c
+            n2(1) = xn(nx1,j)
+            n2(2) = yn(nx1,j)
+            n2(3) = zn(nx1,j)
+c
+            js = 3
+            if (j.eq.ny1) js = 4
+c
+            call compute_edge(xyz,sidepts(1,js),n1,n2,nx1,zgm1,.45,ieg)
+c
+            do i=2,nx1-1
+               x(i,j) = xyz(1,i)
+               y(i,j) = xyz(2,i)
+               z(i,j) = xyz(3,i)
+            enddo
+         enddo
+      endif
+c
+      return
+      end
+c-----------------------------------------------------------------------
+

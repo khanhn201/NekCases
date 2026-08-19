@@ -1,0 +1,339 @@
+c-----------------------------------------------------------------------
+c     Carotid Artery .usr routine
+c
+c     Recent modifications:
+c
+c      o  August 12, 2002
+c         Non-trivial divergence inserted near ICA outflow, in order
+c         to ensure that all characteristics leave the domain.  (Requires
+c         a change to navier4.f
+c
+c      o  Nov. 4, 2002
+c         Changed Womersley to use splines
+c
+c
+c-----------------------------------------------------------------------
+      subroutine uservp (ix,iy,iz,iel)                
+      INCLUDE 'SIZE'   
+      INCLUDE 'TOTAL'  
+      INCLUDE 'NEKUSE' 
+ 
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userf  (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TSTEP'
+C     include 'TOTAL'
+      include 'NEKUSE'
+C
+      ffx = 0.0
+      ffy = 0.0
+      ffz = 0.0
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userq  (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+C
+      qvol   = 0.0
+      source = 0.0
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userchk
+      include 'SIZE'
+      include 'TOTAL'
+
+      character*256 filename(10000)
+
+      real vss(lx1,ly1,lz1,lelt)
+      real vns(lx1,ly1,lz1,lelt)
+      integer iwk, i
+
+      ifpsco(1)=.true.
+      ifto = .true.
+      ifxyo = .true.
+
+      if (nid.eq.0) then
+         open(unit=199,
+     $        file='file.list',
+     $        form='formatted',
+     $        status='old',
+     $        iostat=ios)
+
+         if (ios.ne.0) then
+            write(6,*) 'ERROR: cannot open file.list'
+            call exitt
+         endif
+
+         read(199,*,iostat=ios) nfiles
+
+         if (ios.ne.0) then
+            write(6,*) 'ERROR: cannot read number of files'
+            close(199)
+            call exitt
+         endif
+
+         if (nfiles.gt.10000) then
+            write(6,*) 'ERROR: too many files:',nfiles
+            close(199)
+            call exitt
+         endif
+
+         do i=1,nfiles
+            read(199,'(A256)',iostat=ios) filename(i)
+
+            if (ios.ne.0) then
+               write(6,*) 'ERROR reading file.list, file:',i
+               close(199)
+               call exitt
+            endif
+         enddo
+
+         close(199)
+
+      endif
+
+      call igop ( nfiles , iwk , '+  ', 1 )
+            write(6,*) nfiles
+
+      call bcast(filename,nfiles*256)
+
+      do i=1,nfiles
+         if (nid.eq.0) then
+            write(6,*) ' '
+            write(6,*) '======================================'
+            write(6,*) 'Processing file ',i,' / ',nfiles
+            write(6,'(A)') trim(filename(i))
+            write(6,*) '======================================'
+         endif
+
+         call load_fld(filename(i))
+         istep = i
+
+         call visc_strs(vss, vns, 'W  ')
+         call outpost(vx,vy,vz,pr,vss,'vss')
+         if (nid.eq.0) then
+            write(6,*) 'vss written for file ',i
+         endif
+
+      enddo
+
+      call exitt
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userbc (ix,iy,iz,iface,ieg)
+      include 'SIZE'
+      include 'TSTEP'
+      include 'NEKUSE'
+      include 'PARALLEL'
+      include 'GEOM'
+      include 'TOPOL'
+
+      ux   = 0.
+      uy   = 0.
+      uz   = 0.
+      temp = 0.
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine useric (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TSTEP'
+C     include 'TOTAL'
+      include 'NEKUSE'
+      ux=0.0
+      uy=0.0
+      uz=0.0
+      temp=0
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdatx
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat2
+      include 'SIZE'
+      include 'TOTAL'
+
+      integer e,eg,f
+
+      n = lx1*ly1*lz1*nelt
+
+      nface = 2*ldim
+
+      do iel=1,nelt
+      do ifc=1,2*ndim
+         if (cbc(ifc,iel,1) .eq. 'W  ') then
+           boundaryID(ifc,iel) = 1
+         elseif (cbc(ifc,iel,1) .eq. 'v  ') then
+           boundaryID(ifc,iel) = 2 ! trunk
+         elseif (cbc(ifc,iel,1) .eq. 'O  ') then
+           boundaryID(ifc,iel) = 3 ! branch 1
+         elseif (cbc(ifc,iel,1) .eq. 'int') then
+           boundaryID(ifc,iel) = 4 ! branch 2
+         endif
+      enddo
+      enddo
+
+
+      nfluxsurf = 0
+      do iel=1,nelt
+         do iface = 1, nface
+            if (cbc(iface,iel,1) .eq. 'f1 ') then ! brach 1
+               cbc(iface,iel,1) = 'E  '
+            elseif (cbc(iface,iel,1) .eq. 'f2 ') then ! branch 2
+               cbc(iface,iel,1) = 'E  '
+            elseif (cbc(iface,iel,1) .eq. 'v  ') then ! trunk
+               cbc(iface,iel,1) = 'v  '
+            elseif (cbc(iface,iel,1) .eq. 'O  ') then ! branch 1
+               cbc(iface,iel,1) = 'O  '
+            elseif (cbc(iface,iel,1) .eq. 'int') then ! branch 2
+               cbc(iface,iel,1) = 'O  '
+            endif
+         enddo 
+      enddo
+
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine visc_strs(vss, vns, chr)
+c
+c     Calculate viscous shear stress and normal stress magnitude
+c     on boundary faces tagged with cbc == chr
+c
+      include 'SIZE'
+      include 'TOTAL'
+
+      real vss(lx1,ly1,lz1,lelt)
+      real vns(lx1,ly1,lz1,lelt)
+      character*3 chr
+
+      parameter (lxyz=lx1*ly1*lz1)
+
+      real gije(lxyz,ldim,ldim)
+      real s(3,3)
+      real n(3)
+      real sn,tsq
+      real vd
+
+      integer ie,iface,l,idx
+      integer i,j,k,ii,jj
+      integer kx1,kx2,ky1,ky2,kz1,kz2
+
+      call rzero(vss,lxyz*nelv)
+      call rzero(vns,lxyz*nelv)
+
+      do ie=1,nelv
+
+c        Velocity gradient tensor, then its symmetric part S_ij
+         call comp_gije(gije,vx(1,1,1,ie),vy(1,1,1,ie),vz(1,1,1,ie),ie)
+         call comp_sije(gije)
+
+         do iface=1,2*ldim
+            if (cbc(iface,ie,1).eq.chr) then
+               call facind(kx1,kx2,ky1,ky2,kz1,kz2,lx1,ly1,lz1,iface)
+
+c              l is the running face-point counter used to index unx/uny/unz
+               l = 0
+               do k=kz1,kz2
+               do j=ky1,ky2
+               do i=kx1,kx2
+                  l = l+1
+
+                  idx = i + (j-1)*lx1 + (k-1)*lx1*ly1
+
+c                 Gather the 3x3 tensor at this point (gije is strided
+c                 by lxyz between components, so it cannot be passed
+c                 as a contiguous 3x3 slice)
+                  call rzero(s,9)
+                  do jj=1,ldim
+                  do ii=1,ldim
+                     s(ii,jj) = gije(idx,ii,jj)
+                  enddo
+                  enddo
+
+c                 Wall normal
+                  n(1) = unx(l,1,iface,ie)
+                  n(2) = uny(l,1,iface,ie)
+                  n(3) = unz(l,1,iface,ie)
+                  if (ldim.eq.2) n(3) = 0.0
+
+c                 Local dynamic viscosity
+                  vd = vdiff(i,j,k,ie,1)
+
+                  call wall_stress(s,vd,n,sn,tsq)
+
+                  vss(i,j,k,ie) = sqrt(tsq)
+                  vns(i,j,k,ie) = abs(sn)
+
+               enddo
+               enddo
+               enddo
+
+            endif
+         enddo
+
+      enddo
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine wall_stress(s,vd,n,sn,tsq)
+c
+c     tau_ij = 2*vd*S_ij
+c
+c     viscous traction:
+c
+c          t_i = tau_ij n_j
+c
+c     normal viscous stress:
+c
+c          sn = n_i tau_ij n_j
+c
+c     shear traction:
+c
+c          t_s = t - sn*n
+c
+      real s(3,3),n(3)
+      real vd
+      real sn,tsq
+      real tv(3)
+      real ts
+      integer i,j
+
+c     tau . n
+      do i=1,3
+         tv(i)=0.0
+         do j=1,3
+            tv(i)=tv(i)+2.0*vd*s(i,j)*n(j)
+         enddo
+      enddo
+
+c     Normal component
+      sn = 0.0
+      do i=1,3
+         sn = sn+n(i)*tv(i)
+      enddo
+
+c     Tangential component
+      tsq = 0.0
+      do i=1,3
+         ts = tv(i)-sn*n(i)
+         tsq = tsq+ts*ts
+      enddo
+
+      return
+      end

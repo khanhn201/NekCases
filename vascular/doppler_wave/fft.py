@@ -13,7 +13,7 @@ qmean = 0.250         # L/min
 NMODES = 20
 
 
-df = pd.read_csv('./digitized.csv')
+df = pd.read_csv('./digitized2.csv')
 x = df.x.to_numpy()
 velocity = df["velocity_cm_s"].to_numpy(dtype=float)
 
@@ -44,36 +44,100 @@ print(f"Normalized mean flow: {np.mean(flowrate):.8f} L/min")
 
 
 
-# Frequency is detected from the dominant spectral peak of the detrended signal.
-# Since x is spatial rather than time, normalize the dominant spatial period to 1.
+# ============================================================
+# Split the record into individual cardiac cycles
+#
+# The six beats in this trace are NOT interchangeable: the R-R interval
+# ranges from 0.78 to 0.98 s, and because systole stays roughly fixed
+# while diastole stretches, the early-diastolic reverse notch lands
+# anywhere between phase 0.10 and 0.22 once beats are normalized
+# peak-to-peak.  The notch is only ~5% of a cycle wide, so averaging the
+# beats -- which is what a periodic least-squares fit over the whole
+# record does -- smears it away and leaves a waveform that never goes
+# negative.  Fitting one representative beat keeps the triphasic shape.
+# ============================================================
+
 dx = np.mean(np.diff(x))
-n = len(flowrate)
 
-q_detrended = flowrate - np.mean(flowrate)
+peaks, _ = find_peaks(
+    flowrate,
+    height=0.5 * (flowrate.max() + np.median(flowrate)),
+    distance=int(0.6 / dx),
+)
 
-freq = np.fft.rfftfreq(n, d=dx)
-fft = np.fft.rfft(q_detrended)
+if len(peaks) < 2:
+    raise ValueError("Could not segment the record into cardiac cycles.")
 
-power = np.abs(fft)
+periods = np.diff(x[peaks])
 
-# Remove DC component
-power[0] = 0.0
+print(f"\nFound {len(periods)} cycles, periods (s): "
+      + " ".join(f"{p:.3f}" for p in periods))
 
-k0 = np.argmax(power)
+# Resample every beat onto a common phase grid so they can be compared.
+NPHASE = 200
 
-f0 = abs(freq[k0])
+phase = np.arange(NPHASE) / NPHASE
 
-if f0 <= 0:
-    raise ValueError("Could not detect a nonzero fundamental frequency.")
+cycles = np.array([
+    np.interp(
+        phase,
+        np.linspace(0.0, 1.0, stop - start, endpoint=False),
+        flowrate[start:stop],
+    )
+    for start, stop in zip(peaks[:-1], peaks[1:])
+])
 
-wavelength = 1.0 / f0
-
-print(f"Detected fundamental frequency: {f0:.10e} cycles/x")
-print(f"Detected period/wavelength:      {wavelength:.10e} x-units")
-
+print(" beat   period      min        max")
+for i, (p, cyc) in enumerate(zip(periods, cycles)):
+    print(f"{i+1:5d}  {p:7.3f}  {cyc.min(): .4f}  {cyc.max(): .4f}")
 
 
-phase = (x - x[0]) / wavelength
+# ------------------------------------------------------------
+# Pick the representative beat
+#
+# Among the beats that actually show flow reversal, take the one whose
+# period is closest to the median -- i.e. a typical-length beat that is
+# genuinely triphasic.  Set BEAT to a 1-based index to override.
+# ------------------------------------------------------------
+
+BEAT = None
+
+triphasic = np.where(cycles.min(axis=1) < 0.0)[0]
+
+if BEAT is not None:
+    chosen = BEAT - 1
+elif len(triphasic) > 0:
+    chosen = triphasic[
+        np.argmin(np.abs(periods[triphasic] - np.median(periods)))
+    ]
+else:
+    chosen = int(np.argmin(np.abs(periods - np.median(periods))))
+
+cycle = cycles[chosen]
+wavelength = periods[chosen]
+
+print(f"\nUsing beat {chosen+1} (period {wavelength:.4f} s, "
+      f"min {cycle.min():.4f} L/min)")
+
+# Rotate the cycle so that it starts at end-diastole (the foot of the
+# systolic upstroke) rather than at the systolic peak.
+foot = int(np.argmin(cycle[int(0.6 * NPHASE):]) + 0.6 * NPHASE)
+
+cycle = np.roll(cycle, -foot)
+
+
+# ============================================================
+# Renormalize the chosen cycle to the target mean flow
+# ============================================================
+
+cycle_mean = np.mean(cycle)
+
+cycle *= qmean / cycle_mean
+
+n = NPHASE
+
+print(f"Cycle mean flow after renormalization: {np.mean(cycle):.8f} L/min")
+
 
 # ============================================================
 # 20-mode Fourier least-squares decomposition
@@ -91,7 +155,7 @@ for k in range(1, NMODES + 1):
 
 coef, residuals, rank, singular_values = np.linalg.lstsq(
     M,
-    flowrate,
+    cycle,
     rcond=None
 )
 
@@ -108,19 +172,51 @@ print(f"Fourier mean: {fourier_mean:.12e} L/min")
 # Reconstruct 20-mode waveform
 # ============================================================
 
-flowrate_reconstructed = M @ coef
+cycle_reconstructed = M @ coef
 
 # ============================================================
-# Frequency for Womersley calculation
+# Frequency normalization
 #
-# The cl.fft routine expects freqbpm.
+# The x axis of the Doppler strip is in seconds, so the measured heart
+# rate comes straight from the beat period.  The chosen cycle is then
+# time-rescaled to TARGET_BPM, i.e. the beat is stretched to a period of
+# 60/TARGET_BPM seconds before the Fourier coefficients are interpreted
+# as a frequency.
 #
-# We normalized the independent variable to one fundamental
-# period, so the physical frequency used here is 1 Hz.
+# The coefficients themselves are unchanged by this: the fit is done on
+# a normalized phase grid, so rescaling time only reassigns which
+# physical frequency phase = 1 corresponds to.  What it does change is
+# the Womersley number and the stroke volume per beat.
+#
+# Set TARGET_BPM to None to keep the measured rate.
 # ============================================================
 
-freq_hz = 1.0
-freqbpm = 60.0
+TARGET_BPM = 60.0
+
+measured_bpm = 60.0 / wavelength
+
+if TARGET_BPM is None:
+    freqbpm = measured_bpm
+else:
+    freqbpm = TARGET_BPM
+
+freq_hz = freqbpm / 60.0
+
+period = 1.0 / freq_hz
+
+time_scale = period / wavelength
+
+print(f"\nMeasured heart rate: {measured_bpm:.2f} bpm "
+      f"(period {wavelength:.4f} s)")
+print(f"Normalized to:       {freqbpm:.2f} bpm "
+      f"(period {period:.4f} s), time scaled by {time_scale:.6f}")
+
+# Stroke volume is mean flow times the (now normalized) beat period.
+stroke_ml = qmean / 60.0 * period * 1000.0
+
+print(f"Stroke volume at {freqbpm:.1f} bpm and {qmean:.3f} L/min: "
+      f"{stroke_ml:.3f} mL/beat "
+      f"(measured beat carried {qmean/60.0*wavelength*1000.0:.3f} mL)")
 
 omega = 2.0 * np.pi * freq_hz
 
@@ -179,43 +275,40 @@ for k in range(NMODES):
     )
 
 # ============================================================
-# Plot original normalized waveform and reconstruction
+# Plot the chosen cycle and its reconstruction
 # ============================================================
 
-order = np.argsort(phase)
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 9))
 
-plt.figure(figsize=(10, 5))
+for i, cyc in enumerate(cycles):
+    ax1.plot(phase, cyc * qmean / cycle_mean, lw=0.8, alpha=0.5,
+             label=f"beat {i+1}")
 
-plt.plot(
-    phase,
-    flowrate,
-    ".",
-    ms=3,
-    label="Normalized flow rate"
-)
+ax1.axhline(0.0, color="0.4", lw=1)
+ax1.set_xlabel("Normalized phase (peak to peak)")
+ax1.set_ylabel("Flow rate (L/min)")
+ax1.set_title("All cycles — the reverse notch drifts between phase 0.10 "
+              "and 0.22,\nwhich is why averaging them removes it")
+ax1.grid(True, alpha=0.3)
+ax1.legend(fontsize=8, ncol=3)
 
-plt.plot(
-    phase[order],
-    flowrate_reconstructed[order],
-    "-",
-    lw=2,
-    label="20-mode Fourier reconstruction"
-)
+ax2.plot(phase, cycle, ".", ms=4, label=f"beat {chosen+1} (digitized)")
 
-plt.axhline(
-    qmean,
-    linestyle="--",
-    label=f"Mean = {qmean:.3f} L/min"
-)
+ax2.plot(phase, cycle_reconstructed, "-", lw=2,
+         label=f"{NMODES}-mode Fourier reconstruction")
 
-plt.xlabel("Normalized phase")
-plt.ylabel("Flow rate (L/min)")
-plt.title(
-    f"Normalized flow waveform — 20 Fourier modes\n"
-    f"Fundamental frequency = {freq_hz:.1f} Hz"
-)
+ax2.axhline(0.0, color="0.4", lw=1)
+ax2.axhline(qmean, linestyle="--", label=f"Mean = {qmean:.3f} L/min")
 
-plt.grid(True, alpha=0.3)
-plt.legend()
+ax2.set_xlabel(f"Phase (end-diastole to end-diastole, "
+               f"1 phase unit = {period:.3f} s)")
+ax2.set_ylabel("Flow rate (L/min)")
+ax2.set_title(f"Representative cycle — {NMODES} Fourier modes\n"
+              f"measured {measured_bpm:.1f} bpm, normalized to "
+              f"{freqbpm:.1f} bpm")
+ax2.grid(True, alpha=0.3)
+ax2.legend()
+
 plt.tight_layout()
+plt.savefig("fft_check.png", dpi=150)
 plt.show()

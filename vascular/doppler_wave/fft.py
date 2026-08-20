@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.signal import find_peaks, detrend
+from scipy.signal import find_peaks
+from scipy.special import jv
 
 
 radread = 0.004       # m
@@ -162,9 +163,10 @@ coef, residuals, rank, singular_values = np.linalg.lstsq(
 # Constant component
 fourier_mean = coef[0]
 
-# Fourier coefficients
-A = coef[1::2]
-B = coef[2::2]
+# Fourier coefficients of the ENVELOPE (centreline velocity) waveform.
+# These are converted to flow-rate coefficients further down.
+A_env = coef[1::2]
+B_env = coef[2::2]
 
 print(f"Fourier mean: {fourier_mean:.12e} L/min")
 
@@ -224,6 +226,102 @@ womp = radread * np.sqrt(
     omega * rho / vis
 )
 
+
+# ============================================================
+# Peak -> flow rate:  Womersley inversion
+#
+# The Doppler max envelope is the PEAK (centreline) velocity, not the
+# cross-sectional mean, so the flow rate is not simply velocity * area.
+# For steady flow the centreline/mean ratio is 2 (parabolic), but under
+# pulsatile flow it is frequency dependent: the profile goes blunt as
+# the Womersley number rises, so each harmonic has its own complex ratio
+#
+#     G_k = u_centreline,k / u_mean,k
+#         = [1 - 1/J0(L)] / [1 - 2*J1(L)/(L*J0(L],   L = alpha_k * i^(3/2)
+#
+# with alpha_k = alpha_1 * sqrt(k).  G_0 = 2 (parabolic), and |G_k| falls
+# to ~1.06 by k = 20.
+#
+# This matters because womer() in ab.usr rebuilds the Womersley profile
+# from the flow coefficients.  Feeding it coefficients derived with a
+# constant (plug or parabolic) factor means the centreline velocity the
+# solver actually imposes does NOT reproduce the digitized envelope --
+# it comes out ~1.4x less pulsatile, and the reverse-flow phase vanishes.
+#
+# Set WOMERSLEY_INVERSION = False to fall back to Q proportional to the
+# envelope.
+# ============================================================
+
+WOMERSLEY_INVERSION = True
+
+alpha1 = womp
+
+# Complex harmonics of the envelope, in the convention used by ab.usr:
+#   waveform(t) = mean + Re[ sum_k (A_k - i B_k) * exp(i k omega t) ]
+v_hat = A_env - 1j * B_env
+
+if WOMERSLEY_INVERSION:
+
+    k_modes = np.arange(1, NMODES + 1)
+
+    lam = alpha1 * np.sqrt(k_modes) * np.exp(0.75j * np.pi)
+
+    G = (1.0 - 1.0 / jv(0, lam)) / (
+        1.0 - 2.0 * jv(1, lam) / (lam * jv(0, lam))
+    )
+
+    # G_0 = 2 for the mean, so harmonics are rescaled by 2/G_k relative
+    # to a mean that is held at qmean.
+    q_hat = v_hat * 2.0 / G
+
+else:
+    G = np.full(NMODES, 2.0, dtype=complex)
+    q_hat = v_hat.astype(complex)
+
+A = q_hat.real
+B = -q_hat.imag
+
+print(f"\nWomersley inversion: {WOMERSLEY_INVERSION}  (alpha_1 = {alpha1:.4f})")
+
+if WOMERSLEY_INVERSION:
+    print("   k   alpha_k    |G_k|   arg(G_k)   harmonic gain 2/|G_k|")
+    for k in (1, 2, 3, 5, 10, 20):
+        g = G[k-1]
+        print(f"{k:4d}  {alpha1*np.sqrt(k):7.2f}  {abs(g):7.3f}  "
+              f"{np.degrees(np.angle(g)):7.2f} deg  {2.0/abs(g):8.3f}")
+
+# ------------------------------------------------------------
+# Waveforms for plotting / diagnostics
+# ------------------------------------------------------------
+
+flow_cycle = np.full(NPHASE, qmean)
+
+for k in range(1, NMODES + 1):
+    flow_cycle += (A[k-1] * np.cos(2.0 * np.pi * k * phase)
+                   + B[k-1] * np.sin(2.0 * np.pi * k * phase))
+
+# Round-trip: the centreline velocity womer() will build from these
+# coefficients.  This is a check on the A/B <-> complex convention, not
+# an independent validation -- it should match the envelope to within
+# the 20-mode truncation.
+centreline = np.full(NPHASE, qmean)
+
+for k in range(1, NMODES + 1):
+    c = (A[k-1] - 1j * B[k-1]) * G[k-1] / 2.0
+    centreline += (c.real * np.cos(2.0 * np.pi * k * phase)
+                   - c.imag * np.sin(2.0 * np.pi * k * phase))
+
+print(f"\nround-trip centreline vs envelope: max |diff| = "
+      f"{np.max(np.abs(centreline - cycle_reconstructed)):.3e} L/min-equiv")
+
+fwd = flow_cycle[flow_cycle > 0].sum()
+rev = abs(flow_cycle[flow_cycle < 0].sum())
+
+print(f"\nFlow waveform written to cl.fft:")
+print(f"   min {flow_cycle.min():.4f}  max {flow_cycle.max():.4f} L/min"
+      f"   peak/mean {flow_cycle.max()/qmean:.2f}"
+      f"   retrograde fraction {rev/fwd:.3f}")
+
 # ============================================================
 # Write cl.fft
 # ============================================================
@@ -275,10 +373,10 @@ for k in range(NMODES):
     )
 
 # ============================================================
-# Plot the chosen cycle and its reconstruction
+# Plot
 # ============================================================
 
-fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 9))
+fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 13))
 
 for i, cyc in enumerate(cycles):
     ax1.plot(phase, cyc * qmean / cycle_mean, lw=0.8, alpha=0.5,
@@ -286,7 +384,7 @@ for i, cyc in enumerate(cycles):
 
 ax1.axhline(0.0, color="0.4", lw=1)
 ax1.set_xlabel("Normalized phase (peak to peak)")
-ax1.set_ylabel("Flow rate (L/min)")
+ax1.set_ylabel("Envelope (scaled)")
 ax1.set_title("All cycles — the reverse notch drifts between phase 0.10 "
               "and 0.22,\nwhich is why averaging them removes it")
 ax1.grid(True, alpha=0.3)
@@ -295,19 +393,38 @@ ax1.legend(fontsize=8, ncol=3)
 ax2.plot(phase, cycle, ".", ms=4, label=f"beat {chosen+1} (digitized)")
 
 ax2.plot(phase, cycle_reconstructed, "-", lw=2,
-         label=f"{NMODES}-mode Fourier reconstruction")
+         label=f"{NMODES}-mode fit")
+
+ax2.plot(phase, centreline, "--", lw=1.5,
+         label="centreline rebuilt from written coefficients")
 
 ax2.axhline(0.0, color="0.4", lw=1)
-ax2.axhline(qmean, linestyle="--", label=f"Mean = {qmean:.3f} L/min")
-
-ax2.set_xlabel(f"Phase (end-diastole to end-diastole, "
-               f"1 phase unit = {period:.3f} s)")
-ax2.set_ylabel("Flow rate (L/min)")
-ax2.set_title(f"Representative cycle — {NMODES} Fourier modes\n"
-              f"measured {measured_bpm:.1f} bpm, normalized to "
-              f"{freqbpm:.1f} bpm")
+ax2.set_xlabel("Phase")
+ax2.set_ylabel("Peak velocity (scaled)")
+ax2.set_title(f"Measured envelope = centreline velocity — "
+              f"measured {measured_bpm:.1f} bpm, "
+              f"normalized to {freqbpm:.1f} bpm")
 ax2.grid(True, alpha=0.3)
 ax2.legend()
+
+ax3.plot(phase, cycle, ":", lw=1.5, color="0.5",
+         label="envelope shape (what the old code wrote)")
+
+ax3.plot(phase, flow_cycle, "-", lw=2, color="C1",
+         label="Q(t) after Womersley inversion")
+
+ax3.axhline(0.0, color="0.4", lw=1)
+ax3.axhline(qmean, linestyle="--", color="0.6",
+            label=f"Mean = {qmean:.3f} L/min")
+
+ax3.set_xlabel(f"Phase (end-diastole to end-diastole, "
+               f"1 phase unit = {period:.3f} s)")
+ax3.set_ylabel("Flow rate (L/min)")
+ax3.set_title(f"Flow waveform written to cl.fft  "
+              f"(peak/mean {flow_cycle.max()/qmean:.2f}, "
+              f"retrograde {rev/fwd*100:.1f}%)")
+ax3.grid(True, alpha=0.3)
+ax3.legend()
 
 plt.tight_layout()
 plt.savefig("fft_check.png", dpi=150)

@@ -22,7 +22,7 @@ residualProj = yes
 [VELOCITY]
 residualTol = 1e-8
 density = 1.0
-viscosity = -500
+viscosity = -200
 
 [TEMPERATURE]
 solver = none

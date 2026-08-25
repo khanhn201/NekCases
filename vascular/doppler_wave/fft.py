@@ -359,6 +359,195 @@ with open('cl.fft', "w") as f:
 print(f"\nWrote cl.fft")
 
 # ============================================================
+# Axial velocity profiles the solver will actually impose
+#
+# womer() in ab.usr rebuilds u_z(r,t) from the coefficients just
+# written to cl.fft:
+#
+#   u(rhat,t) = 2*Qmean/Area * (1 - rhat^2)
+#             + Re{ sum_k  q_k/Area * PHI_k(rhat) * exp(i k omega t) }
+#
+#   PHI_k(rhat) = [1 - J0(lam_k*rhat)/J0(lam_k)]
+#                 / [1 - 2*J1(lam_k)/(lam_k*J0(lam_k))]
+#
+# with lam_k = alpha_k * i^(3/2) and q_k = A_k - i B_k.  PHI_k(0) = G_k,
+# so the centreline of these profiles is the envelope fitted above.  The
+# Bessel kernel is used regardless of WOMERSLEY_INVERSION, because that
+# is what womer() does with whatever coefficients it is handed.
+# ============================================================
+
+NR = 101
+
+rhat = np.linspace(0.0, 1.0, NR)
+
+area = np.pi * radread**2
+
+# Q [L/min] -> [m^3/s]
+lpm_to_m3s = 1.0 / (1000.0 * 60.0)
+
+lam_k = alpha1 * np.sqrt(np.arange(1, NMODES + 1)) * np.exp(0.75j * np.pi)
+
+# PHI[k-1, :] : radial shape of harmonic k
+PHI = np.array([
+    (1.0 - jv(0, lam * rhat) / jv(0, lam))
+    / (1.0 - 2.0 * jv(1, lam) / (lam * jv(0, lam)))
+    for lam in lam_k
+])
+
+q_k = (A - 1j * B) * lpm_to_m3s / area          # m/s, complex
+
+
+def axial_velocity(t_phase):
+    """Axial velocity profile u(rhat) [m/s] at normalized phase t_phase."""
+    u = 2.0 * qmean * lpm_to_m3s / area * (1.0 - rhat**2)
+    for k in range(1, NMODES + 1):
+        u += np.real(q_k[k-1] * PHI[k-1] * np.exp(2j * np.pi * k * t_phase))
+    return u
+
+
+# ------------------------------------------------------------
+# Phases to report
+#
+#   systole        peak forward flow
+#   diastole       peak reverse flow (the early-diastolic notch)
+#   late diastole  end-diastole, i.e. phase 0 -- the cycle was rolled so
+#                  it starts at the foot of the systolic upstroke
+# ------------------------------------------------------------
+
+i_sys = int(np.argmax(flow_cycle))
+i_dia = int(np.argmin(flow_cycle))
+i_late = 0
+
+phase_points = [
+    ("diastole",      phase[i_dia],  flow_cycle[i_dia]),
+    ("late_diastole", phase[i_late], flow_cycle[i_late]),
+    ("systole",       phase[i_sys],  flow_cycle[i_sys]),
+]
+
+profiles = {name: axial_velocity(ph) for name, ph, _ in phase_points}
+
+print("\nAxial velocity profiles imposed by womer() "
+      f"(alpha_1 = {alpha1:.3f}, period {period:.3f} s):")
+print("  phase name      phase    t [s]     Q [L/min]   "
+      "u_centreline [m/s]   u_mean [m/s]")
+
+for name, ph, q in phase_points:
+    u = profiles[name]
+    # cross-sectional mean = 2*int_0^1 u rhat drhat
+    u_bar = 2.0 * np.trapezoid(u * rhat, rhat)
+    print(f"  {name:<14s} {ph:6.3f}  {ph*period:7.4f}  {q: 10.4f}   "
+          f"{u[0]: 14.6f}      {u_bar: 10.6f}")
+
+# ------------------------------------------------------------
+# Write the profiles
+# ------------------------------------------------------------
+
+with open("velocity_profiles.dat", "w") as f:
+    f.write("# Axial velocity profiles rebuilt from cl.fft, as womer() in "
+            "ab.usr imposes them\n")
+    f.write(f"# radius R = {radread:.6e} m,  period = {period:.6f} s "
+            f"({freqbpm:.1f} bpm),  alpha_1 = {alpha1:.6f}\n")
+    f.write(f"# mean flow = {qmean:.6f} L/min,  "
+            f"mean velocity = {qmean*lpm_to_m3s/area:.6f} m/s\n")
+    for name, ph, q in phase_points:
+        f.write(f"# {name}: phase = {ph:.4f}, t = {ph*period:.6f} s, "
+                f"Q = {q:.6f} L/min\n")
+    f.write("# columns: r/R  r[m]  "
+            + "  ".join(f"u_{name}[m/s]" for name, _, _ in phase_points)
+            + "\n")
+    for i in range(NR):
+        f.write(f"{rhat[i]:.16e} {rhat[i]*radread:.16e} "
+                + " ".join(f"{profiles[name][i]:.16e}"
+                           for name, _, _ in phase_points)
+                + "\n")
+
+print("Wrote velocity_profiles.dat")
+
+# ------------------------------------------------------------
+# Profile figure
+# ------------------------------------------------------------
+
+figp, (axp1, axp2) = plt.subplots(1, 2, figsize=(11, 5))
+
+for (name, ph, q), color in zip(phase_points, ("C0", "C2", "C3")):
+    axp1.plot(profiles[name], rhat, "-", lw=2, color=color,
+              label=f"{name.replace('_', ' ')}  "
+                    f"(t = {ph*period:.3f} s, Q = {q:.3f} L/min)")
+
+axp1.axvline(0.0, color="0.4", lw=1)
+axp1.set_xlabel("Axial velocity u_z (m/s)")
+axp1.set_ylabel("r / R")
+axp1.set_title("Womersley profiles imposed at the inlet")
+axp1.grid(True, alpha=0.3)
+axp1.legend(fontsize=8)
+
+axp2.plot(phase * period, flow_cycle, "-", lw=2, color="C1")
+axp2.axhline(0.0, color="0.4", lw=1)
+
+for (name, ph, q), color in zip(phase_points, ("C0", "C2", "C3")):
+    axp2.plot(ph * period, q, "o", ms=8, color=color,
+              label=name.replace("_", " "))
+
+axp2.set_xlabel("Time (s)")
+axp2.set_ylabel("Flow rate (L/min)")
+axp2.set_title("Where those profiles sit in the cycle")
+axp2.grid(True, alpha=0.3)
+axp2.legend(fontsize=8)
+
+figp.tight_layout()
+figp.savefig("velocity_profiles.png", dpi=150)
+
+# ------------------------------------------------------------
+# Centreline velocity and flow rate over the cycle, both rebuilt from
+# the coefficients in cl.fft
+#
+# u_cl is what a Doppler probe on the axis would read, so this is the
+# curve to compare against the digitized envelope; Q is what the
+# boundary condition actually enforces.  They are not proportional --
+# the profile bluntness varies through the cycle.
+# ------------------------------------------------------------
+
+expo = np.exp(2j * np.pi * np.outer(np.arange(1, NMODES + 1), phase))
+
+u_cl_cycle = (2.0 * qmean * lpm_to_m3s / area
+              + np.real((q_k * PHI[:, 0]) @ expo))
+
+print(f"\nCentreline: min {u_cl_cycle.min():.6f}  max {u_cl_cycle.max():.6f} m/s"
+      f"   (peak {u_cl_cycle.max()/u_cl_cycle.mean():.2f} x cycle mean)")
+
+figq, axq = plt.subplots(figsize=(10, 5))
+
+axq.plot(phase * period, u_cl_cycle, "-", lw=2, color="C3",
+         label="centreline $u_z(r=0)$")
+
+axq.axhline(0.0, color="0.4", lw=1)
+
+for name, ph, q in phase_points:
+    axq.axvline(ph * period, ls=":", lw=1, color="0.6")
+    axq.annotate(name.replace("_", " "), (ph * period, axq.get_ylim()[1]),
+                 fontsize=8, ha="center", va="bottom", color="0.3")
+
+axq.set_xlabel(f"Time (s)   —   period {period:.3f} s ({freqbpm:.0f} bpm)")
+axq.set_ylabel("Centreline axial velocity (m/s)")
+axq.grid(True, alpha=0.3)
+
+axq2 = axq.twinx()
+
+axq2.plot(phase * period, flow_cycle, "--", lw=3, color="C1", alpha=0.6,
+          label="flow rate $Q$")
+
+axq2.set_ylabel("Flow rate (L/min)")
+
+lines = axq.get_lines()[:1] + axq2.get_lines()[:1]
+axq.legend(lines, [l.get_label() for l in lines], loc="upper right")
+
+axq.set_title("Centreline velocity and flow rate from cl.fft")
+
+figq.tight_layout()
+figq.savefig("centreline_flow.png", dpi=150)
+
+
+# ============================================================
 # Print coefficients
 # ============================================================
 

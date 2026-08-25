@@ -9,6 +9,8 @@ filtering = hpfrt
 filterModes = 2
 filterWeight = 10.0
 
+extrapolation = OIFS
+targetCFL = 1
 
 [PROBLEMTYPE]
 # equation = navierStokes+variableViscosity

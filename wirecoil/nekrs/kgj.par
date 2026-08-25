@@ -1,0 +1,51 @@
+userSections = CASEDATA
+
+[GENERAL]
+polynomialOrder = 7
+numSteps = 510000
+dt = 3.5e-05
+timeStepper = tombo2
+checkpointInterval = 40000
+constFlowRate = meanVelocity=1.4962366 + direction=Z
+
+scalars = temperature
+
+[FLUID VELOCITY]
+boundaryTypeMap = zeroDirichlet, zeroDirichlet
+residualTol = 1e-12
+rho = 1.0
+viscosity = 1.0/5000.0
+
+[FLUID PRESSURE]
+residualTol = 1e-08
+
+
+[SCALAR TEMPERATURE]
+boundaryTypeMap = udfNeumann
+diffusionCoeff = 1.0/5000.0/5.858 # 1/Re/Pr
+transportCoeff = 1.0
+
+residualTol = 1e-08
+mesh = fluid + solid
+
+
+[CASEDATA]
+# Fluid/solid scalar-property split (kgj.udf's uservp) -- fixed copper/water
+# material constants, NOT Re-dependent. conFluid/rhoCpFluid themselves are NOT
+# read from here -- uservp() reads them straight off NekRS's own device arrays
+# at first-call time instead (platform->par->extract can't safely read
+# [SCALAR TEMPERATURE]'s expression-valued keys, see kgj.udf's uservp comment
+# and kgj-performance/solid-conductivity-bug.md for why). See
+# kgj-simulation-reference.md SS5 for the bug this fixes and where these ratios
+# come from (k_copper/k_water = 385/0.608, (rho*Cp)_copper/(rho*Cp)_water =
+# (8.9*.385)/(1.0*4.18) -- same numbers as kgj.usr's material_props cprop table).
+condRatioSolidFluid = 633.2236842
+rhoCpRatioSolidFluid = 0.8197368421
+
+# stage1Dir MUST be double-quoted -- .par values are lowercased during parsing
+# by default (driver.hpp's par->parse(is), lowerValue=true), quotes are the
+# escape mechanism that preserves case (see inipp.cpp's quotedWords handling).
+# An unquoted path here will silently resolve to a lowercased, nonexistent
+# directory and the .udf's ofstream writes will fail silently.
+stage1Dir = "/path/to/postprocessing/stage1/<campaign-name>/<case-id>"
+snapshotInterval = 0

@@ -1,0 +1,615 @@
+#ifdef __okl__
+void udfNeumann(bcData *bc)
+{
+  if (isField("scalar temperature")) {
+    bc->fluxScalar = 1.0;
+  }
+}
+
+@kernel void cFill(const dlong Nelements,
+                   const dfloat CONST1,
+                   const dfloat CONST2,
+                   @ restrict const dlong *eInfo,
+                   @ restrict dfloat *QVOL)
+{
+  for (dlong e = 0; e < Nelements; ++e; @outer(0)) {
+    const dlong solid = eInfo[e];
+    for (int n = 0; n < p_Np; ++n; @inner(0)) {
+      const int id = e * p_Np + n;
+      QVOL[id] = CONST1;
+      if (solid) {
+        QVOL[id] = CONST2;
+      }
+    }
+  }
+}
+#endif
+
+#include <fstream>
+#include <chrono>
+#include <cstdint>
+
+static deviceMemory<dfloat> o_volsource;
+dfloat rcpgamma_t_s;
+dfloat uz_flx_s;
+static dfloat dt0;
+static std::string stage1Dir;
+static int snapshotInterval = 0;
+static std::string probesDir;
+static int probeInterval = 0;
+
+// Fluid/solid scalar-property split (uservp below). conFluid/rhoCpFluid are read at
+// uservp()-call time straight off NekRS's own already-evaluated device arrays (see
+// uservp), NOT re-parsed from .par -- so a Re change (which changes conFluid=1/Re/Pr)
+// only requires editing .par, no second copy anywhere to keep in sync. condRatioSolidFluid/
+// rhoCpRatioSolidFluid are genuine material constants (copper/water), NOT Re-dependent --
+// see kgj-simulation-reference.md SS5. These two ARE read from .par (plain numeric
+// literals, no expression to evaluate, so platform->par->extract works directly).
+static dfloat condRatioSolidFluid_;
+static dfloat rhoCpRatioSolidFluid_;
+
+// ---------------------------------------------------------------------------
+// Stage 1: in-situ SEM -> uniform-grid interpolation, raw binary dump.
+// See kgj-interpolation-pipeline/README.md for the full design/rationale.
+// ---------------------------------------------------------------------------
+namespace stage1
+{
+// Defaults match the production 128x128x256 grid; overridden from [CASEDATA]
+// stage1Nx/stage1Ny/stage1Nz in UDF_Setup0 for smaller test-scale runs.
+static int Nx = 128, Ny = 128, Nz = 256;
+constexpr dfloat rOut = 0.6667; // fixed across geometries -- shared test-section tube radius
+
+// Aborts with a clear message rather than silently writing nothing -- caught a real bug
+// here where an unquoted stage1Dir in .par got silently lowercased to a nonexistent path
+// by the ini parser (driver.hpp's default lowerValue=true), and ofstream failed silently.
+//
+// MUST be called by ALL ranks, not just rank 0 -- nekrsCheck does an internal
+// MPI_Allreduce. Calling it from rank 0 only (inside an `if (rank==0)` guard)
+// deadlocks: rank 0 blocks on the Allreduce forever since no other rank ever
+// joins it. Only rank 0 actually attempts the open; others pass failed=false.
+void openOrDie(std::ofstream &f, const std::string &path, std::ios::openmode mode)
+{
+  bool failed = false;
+  if (platform->comm.mpiRank() == 0) {
+    f.open(path, mode);
+    failed = !f.is_open();
+  }
+  nekrsCheck(failed, platform->comm.mpiComm(), EXIT_FAILURE,
+             "stage1: failed to open %s for writing (check stage1Dir exists and is quoted in .par)\n",
+             path.c_str());
+}
+
+void extractSnapshot(nrs_t *nrs, double time, int tstep)
+{
+  static pointInterpolation_t *interpV = nullptr;
+  static pointInterpolation_t *interpT = nullptr;
+  static deviceMemory<dfloat> o_vzOut, o_TOut;
+  static dlong numPointsLocal = 0;
+  static dlong nPointsGlobal = 0;
+  // Per-rank point counts/offsets, for MPI_Gatherv -- every rank can compute
+  // these deterministically for every other rank (fieldExtract.hpp's pattern),
+  // no extra communication needed to learn them.
+  static std::vector<int> recvcounts, displs;
+
+  if (platform->comm.mpiRank() == 0) { printf("stage1: extractSnapshot entered, tstep=%d\n", tstep); fflush(stdout); }
+
+  if (!interpV) {
+    auto tic = [](){ return std::chrono::steady_clock::now(); };
+    auto toc = [&](const char *label, std::chrono::steady_clock::time_point t0) {
+      const double dt = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+      if (platform->comm.mpiRank() == 0) { printf("stage1 timing: %-20s %.2fs\n", label, dt); fflush(stdout); }
+    };
+
+    auto meshV = nrs->fluid->mesh;
+    auto meshT = nrs->scalar->mesh("temperature");
+
+    const dfloat zMin = platform->linAlg->min(meshT->Nlocal, meshT->o_z, platform->comm.mpiComm());
+    const dfloat zMax = platform->linAlg->max(meshT->Nlocal, meshT->o_z, platform->comm.mpiComm());
+    const dfloat zlength = zMax - zMin;
+
+    // Distribute the Nx*Ny*Nz global points evenly across ranks (matches
+    // fieldExtract.hpp's set_boxDims pattern) -- each rank only builds/finds/
+    // evals its own subset, instead of every rank redundantly doing all
+    // nPointsGlobal points (the original version's inefficiency).
+    nPointsGlobal = static_cast<dlong>(Nx) * Ny * Nz;
+    const int rank = platform->comm.mpiRank();
+    const int Nrank = platform->comm.mpiCommSize();
+    const dlong nptsBase = nPointsGlobal / Nrank;
+    const dlong nptsLeft = nPointsGlobal % Nrank;
+    numPointsLocal = (rank < nptsLeft) ? nptsBase + 1 : nptsBase;
+    const dlong numPointsScan = rank * nptsBase + std::min<dlong>(nptsLeft, rank);
+
+    recvcounts.resize(Nrank);
+    displs.resize(Nrank);
+    for (int r = 0; r < Nrank; r++) {
+      recvcounts[r] = static_cast<int>((r < nptsLeft) ? nptsBase + 1 : nptsBase);
+      displs[r] = static_cast<int>(r * nptsBase + std::min<dlong>(nptsLeft, r));
+    }
+
+    std::vector<dfloat> xp(numPointsLocal), yp(numPointsLocal), zp(numPointsLocal);
+    auto t0 = tic();
+    for (dlong i = 0; i < numPointsLocal; i++) {
+      const dlong ig = numPointsScan + i;
+      const int k = static_cast<int>(ig / (Nx * Ny));
+      const int rem = static_cast<int>(ig % (Nx * Ny));
+      const int j = rem / Nx;
+      const int ii = rem % Nx;
+      xp[i] = -rOut + 2 * rOut * ii / (Nx - 1);
+      yp[i] = -rOut + 2 * rOut * j / (Ny - 1);
+      zp[i] = zMin + zlength * k / (Nz - 1);
+    }
+    toc("point list build", t0);
+
+    t0 = tic();
+    interpV = new pointInterpolation_t(meshV, platform->comm.mpiComm());
+    interpV->setPoints(xp, yp, zp);
+    interpV->find();
+    toc("find() vs meshV", t0);
+
+    t0 = tic();
+    interpT = new pointInterpolation_t(meshT, platform->comm.mpiComm());
+    interpT->setPoints(xp, yp, zp);
+    interpT->find();
+    toc("find() vs meshT", t0);
+
+    // mask, computed once: fluid/solid/void from find() codes (host-side, local subset)
+    t0 = tic();
+    std::vector<uint8_t> fluidMaskLocal(numPointsLocal), solidMaskLocal(numPointsLocal);
+    for (dlong i = 0; i < numPointsLocal; i++) {
+      const bool inFluid = interpV->data().code[i] != pointInterpolation_t::CODE_NOT_FOUND;
+      const bool inSolidOrFluid = interpT->data().code[i] != pointInterpolation_t::CODE_NOT_FOUND;
+      fluidMaskLocal[i] = inFluid ? 1 : 0;
+      solidMaskLocal[i] = (!inFluid && inSolidOrFluid) ? 1 : 0;
+    }
+    toc("mask compute", t0);
+    t0 = tic();
+
+    // Gather local mask subsets to rank 0 -- with points distributed across
+    // ranks, rank 0 no longer holds the full data on its own.
+    std::vector<uint8_t> fluidMask, solidMask;
+    if (rank == 0) {
+      fluidMask.resize(nPointsGlobal);
+      solidMask.resize(nPointsGlobal);
+    }
+    MPI_Gatherv(fluidMaskLocal.data(), numPointsLocal, MPI_UINT8_T,
+                fluidMask.data(), recvcounts.data(), displs.data(), MPI_UINT8_T,
+                0, platform->comm.mpiComm());
+    MPI_Gatherv(solidMaskLocal.data(), numPointsLocal, MPI_UINT8_T,
+                solidMask.data(), recvcounts.data(), displs.data(), MPI_UINT8_T,
+                0, platform->comm.mpiComm());
+
+    {
+      // openOrDie must be called by every rank (internal MPI_Allreduce) --
+      // only rank 0 actually opens/writes, see openOrDie's comment above.
+      std::ofstream fmask;
+      openOrDie(fmask, stage1Dir + "/mask.bin", std::ios::binary);
+      if (rank == 0) {
+        fmask.write(reinterpret_cast<const char *>(fluidMask.data()), nPointsGlobal);
+        fmask.write(reinterpret_cast<const char *>(solidMask.data()), nPointsGlobal);
+        fmask.close();
+      }
+
+      std::ofstream fmeta;
+      openOrDie(fmeta, stage1Dir + "/grid_meta.json", std::ios::out);
+      if (rank == 0) {
+      fmeta << "{\n"
+            << "  \"Nx\": " << Nx << ",\n"
+            << "  \"Ny\": " << Ny << ",\n"
+            << "  \"Nz\": " << Nz << ",\n"
+            << "  \"x_extent\": [" << -rOut << ", " << rOut << "],\n"
+            << "  \"y_extent\": [" << -rOut << ", " << rOut << "],\n"
+            << "  \"z_extent\": [" << zMin << ", " << zMax << "],\n"
+            << "  \"zlength\": " << zlength << ",\n"
+            << "  \"dtype\": \"" << dfloatString << "\",\n"
+            << "  \"point_order\": \"z-outer,y-middle,x-inner (C-order reshape: (Nz,Ny,Nx))\",\n"
+            << "  \"mask_layout\": \"fluid mask (nPoints bytes) then solid mask (nPoints bytes)\"\n"
+            << "}\n";
+        fmeta.close();
+      }
+    }
+    toc("mask+meta write", t0);
+
+    o_vzOut.resize(numPointsLocal);
+    o_TOut.resize(numPointsLocal);
+  }
+
+  auto tic = [](){ return std::chrono::steady_clock::now(); };
+  auto toc = [&](const char *label, std::chrono::steady_clock::time_point t0) {
+    const double dt = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    if (platform->comm.mpiRank() == 0) { printf("stage1 timing: %-20s %.2fs\n", label, dt); fflush(stdout); }
+  };
+
+  auto t0 = tic();
+  auto o_uz = nrs->fluid->o_U.slice(2 * nrs->fieldOffset, nrs->fieldOffset);
+  interpV->eval(1, nrs->fieldOffset, o_uz, numPointsLocal, o_vzOut);
+
+  auto o_T = nrs->scalar->o_solution("temperature");
+  interpT->eval(1, nrs->scalar->fieldOffset(), o_T, numPointsLocal, o_TOut);
+  toc("eval() vz+T", t0);
+
+  t0 = tic();
+  std::vector<dfloat> vzHostLocal(numPointsLocal), THostLocal(numPointsLocal);
+  o_vzOut.copyTo(vzHostLocal);
+  o_TOut.copyTo(THostLocal);
+  toc("device->host copy", t0);
+
+  t0 = tic();
+  const int rank = platform->comm.mpiRank();
+  std::vector<dfloat> vzHost, THost;
+  if (rank == 0) {
+    vzHost.resize(nPointsGlobal);
+    THost.resize(nPointsGlobal);
+  }
+  MPI_Gatherv(vzHostLocal.data(), numPointsLocal, MPI_DFLOAT,
+              vzHost.data(), recvcounts.data(), displs.data(), MPI_DFLOAT,
+              0, platform->comm.mpiComm());
+  MPI_Gatherv(THostLocal.data(), numPointsLocal, MPI_DFLOAT,
+              THost.data(), recvcounts.data(), displs.data(), MPI_DFLOAT,
+              0, platform->comm.mpiComm());
+  toc("gather to rank0", t0);
+
+  t0 = tic();
+  {
+    const std::string suffix = "_step" + std::to_string(tstep) + ".bin";
+    std::ofstream fvz;
+    openOrDie(fvz, stage1Dir + "/vz" + suffix, std::ios::binary);
+    std::ofstream fT;
+    openOrDie(fT, stage1Dir + "/T" + suffix, std::ios::binary);
+    if (rank == 0) {
+      fvz.write(reinterpret_cast<const char *>(vzHost.data()), nPointsGlobal * sizeof(dfloat));
+      fvz.close();
+      fT.write(reinterpret_cast<const char *>(THost.data()), nPointsGlobal * sizeof(dfloat));
+      fT.close();
+    }
+  }
+  toc("snapshot bin write", t0);
+
+  // Per-snapshot physical diagnostics (Nu/tbulk/tbar/fluxes) -- freshly computed by the
+  // nek::userchk() call in UDF_ExecuteStep immediately before this function runs (same
+  // snapshotInterval condition), not a stale throttled value. Appended as one 8-double
+  // row (time + 7 diagScalars) to a single running file, rank 0 only.
+  {
+    static std::ofstream fdiag;
+    static bool diagMetaWritten = false;
+    if (!diagMetaWritten) {
+      openOrDie(fdiag, stage1Dir + "/diagnostics.bin", std::ios::binary);
+      std::ofstream fdiagMeta;
+      openOrDie(fdiagMeta, stage1Dir + "/diag_meta.json", std::ios::out);
+      if (platform->comm.mpiRank() == 0) {
+        fdiagMeta << "{\n"
+                  << "  \"record_layout\": \"time, tbar, tbulk, tout, nusselt, flux_wall, "
+                     "flux_wire, flux_tot (8 doubles per snapshot, appended in write order, "
+                     "one row per snapshot)\",\n"
+                  << "  \"dtype\": \"float64\"\n"
+                  << "}\n";
+        fdiagMeta.close();
+      }
+      diagMetaWritten = true;
+    }
+    std::vector<double> diagScalars(nek::ptr<double>("diagScalars"), nek::ptr<double>("diagScalars") + 7);
+    if (platform->comm.mpiRank() == 0) {
+      double record[8];
+      record[0] = time;
+      for (int i = 0; i < 7; i++) record[i + 1] = diagScalars[i];
+      fdiag.write(reinterpret_cast<const char *>(record), sizeof(record));
+      fdiag.flush();
+    }
+  }
+}
+} // namespace stage1
+
+// ---------------------------------------------------------------------------
+// Probes: fixed set of random points in the fluid domain, full velocity
+// (vx,vy,vz) logged every step, for offline autocorrelation/decorrelation-
+// timescale estimation. See kgj-data-generation snapshot-spacing discussion.
+// ---------------------------------------------------------------------------
+namespace probes
+{
+constexpr int Nprobes = 1000;
+// Oversampled candidate pool to draw fluid-only points from by rejection;
+// must be large enough that >= Nprobes candidates land in fluid.
+constexpr int NcandidatesMax = 8000;
+constexpr dfloat rOut = stage1::rOut;
+constexpr uint64_t seedBase = 1234567ULL; // fixed -- reproducible probe placement
+
+// splitmix64-based per-index PRNG: every rank derives the SAME candidate
+// coordinate for global index i with no communication (pure function of i),
+// avoiding any need to broadcast/partition the random point list.
+inline uint64_t splitmix64(uint64_t x)
+{
+  x += 0x9E3779B97F4A7C15ULL;
+  x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ULL;
+  x = (x ^ (x >> 27)) * 0x94D049BB133111EBULL;
+  return x ^ (x >> 31);
+}
+inline dfloat uniform01(uint64_t seed)
+{
+  return (splitmix64(seed) >> 11) * (1.0 / 9007199254740992.0); // 53-bit mantissa, [0,1)
+}
+
+static pointInterpolation_t *interp = nullptr;
+static deviceMemory<dfloat> o_vxOut, o_vyOut, o_vzOut;
+static std::ofstream fdata;
+constexpr int flushEveryNSteps = 200;
+
+void writeStep(nrs_t *nrs, double time, int tstep)
+{
+  if (!interp) {
+    auto meshV = nrs->fluid->mesh;
+    const dfloat zMin = platform->linAlg->min(meshV->Nlocal, meshV->o_z, platform->comm.mpiComm());
+    const dfloat zMax = platform->linAlg->max(meshV->Nlocal, meshV->o_z, platform->comm.mpiComm());
+
+    // Every rank builds the SAME full candidate pool and the SAME final
+    // Nprobes selection independently (deterministic PRNG + identical
+    // rejection logic) -- no MPI needed for point selection itself.
+    std::vector<dfloat> cx(NcandidatesMax), cy(NcandidatesMax), cz(NcandidatesMax);
+    for (int i = 0; i < NcandidatesMax; i++) {
+      cx[i] = -rOut + 2 * rOut * uniform01(seedBase + 3 * i + 0);
+      cy[i] = -rOut + 2 * rOut * uniform01(seedBase + 3 * i + 1);
+      cz[i] = zMin + (zMax - zMin) * uniform01(seedBase + 3 * i + 2);
+    }
+
+    pointInterpolation_t interpCand(meshV, platform->comm.mpiComm());
+    interpCand.setPoints(cx, cy, cz);
+    interpCand.find();
+
+    std::vector<dfloat> xp, yp, zp;
+    xp.reserve(Nprobes);
+    yp.reserve(Nprobes);
+    zp.reserve(Nprobes);
+    for (int i = 0; i < NcandidatesMax && static_cast<int>(xp.size()) < Nprobes; i++) {
+      if (interpCand.data().code[i] != pointInterpolation_t::CODE_NOT_FOUND) {
+        xp.push_back(cx[i]);
+        yp.push_back(cy[i]);
+        zp.push_back(cz[i]);
+      }
+    }
+    nekrsCheck(static_cast<int>(xp.size()) < Nprobes, platform->comm.mpiComm(), EXIT_FAILURE,
+               "probes: only found %d/%d fluid points in candidate pool of %d -- "
+               "increase NcandidatesMax\n",
+               static_cast<int>(xp.size()), Nprobes, NcandidatesMax);
+
+    // Rebuild on just the selected Nprobes points (same list on every rank --
+    // redundant find()/eval() across ranks, but Nprobes=1000 is cheap enough
+    // that this is negligible, and it means eval() below already returns the
+    // full, correct Nprobes-length result on EVERY rank -- no MPI_Gatherv
+    // needed afterward, unlike stage1's grid (which is too large for this).
+    interp = new pointInterpolation_t(meshV, platform->comm.mpiComm());
+    interp->setPoints(xp, yp, zp);
+    interp->find();
+
+    o_vxOut.resize(Nprobes);
+    o_vyOut.resize(Nprobes);
+    o_vzOut.resize(Nprobes);
+
+    std::ofstream fcoord;
+    stage1::openOrDie(fcoord, probesDir + "/probe_coords.bin", std::ios::binary);
+    if (platform->comm.mpiRank() == 0) {
+      fcoord.write(reinterpret_cast<const char *>(xp.data()), Nprobes * sizeof(dfloat));
+      fcoord.write(reinterpret_cast<const char *>(yp.data()), Nprobes * sizeof(dfloat));
+      fcoord.write(reinterpret_cast<const char *>(zp.data()), Nprobes * sizeof(dfloat));
+      fcoord.close();
+    }
+
+    std::ofstream fmeta;
+    stage1::openOrDie(fmeta, probesDir + "/probe_meta.json", std::ios::out);
+    if (platform->comm.mpiRank() == 0) {
+      fmeta << "{\n"
+            << "  \"Nprobes\": " << Nprobes << ",\n"
+            << "  \"dtype\": \"" << dfloatString << "\",\n"
+            << "  \"coords_layout\": \"x(Nprobes) then y(Nprobes) then z(Nprobes)\",\n"
+            << "  \"record_layout\": \"per logged step: time(1), vx(Nprobes), vy(Nprobes), "
+               "vz(Nprobes)\"\n"
+            << "}\n";
+      fmeta.close();
+    }
+
+    stage1::openOrDie(fdata, probesDir + "/probe_timeseries.bin", std::ios::binary);
+  }
+
+  auto o_vx = nrs->fluid->o_U.slice(0 * nrs->fieldOffset, nrs->fieldOffset);
+  auto o_vy = nrs->fluid->o_U.slice(1 * nrs->fieldOffset, nrs->fieldOffset);
+  auto o_vz = nrs->fluid->o_U.slice(2 * nrs->fieldOffset, nrs->fieldOffset);
+
+  interp->eval(1, nrs->fieldOffset, o_vx, Nprobes, o_vxOut);
+  interp->eval(1, nrs->fieldOffset, o_vy, Nprobes, o_vyOut);
+  interp->eval(1, nrs->fieldOffset, o_vz, Nprobes, o_vzOut);
+
+  if (platform->comm.mpiRank() == 0) {
+    std::vector<dfloat> vxH(Nprobes), vyH(Nprobes), vzH(Nprobes);
+    o_vxOut.copyTo(vxH);
+    o_vyOut.copyTo(vyH);
+    o_vzOut.copyTo(vzH);
+
+    const dfloat t = static_cast<dfloat>(time);
+    fdata.write(reinterpret_cast<const char *>(&t), sizeof(dfloat));
+    fdata.write(reinterpret_cast<const char *>(vxH.data()), Nprobes * sizeof(dfloat));
+    fdata.write(reinterpret_cast<const char *>(vyH.data()), Nprobes * sizeof(dfloat));
+    fdata.write(reinterpret_cast<const char *>(vzH.data()), Nprobes * sizeof(dfloat));
+
+    if (tstep % flushEveryNSteps == 0) {
+      fdata.flush();
+    }
+  }
+}
+} // namespace probes
+
+void userSource(double time)
+{
+  auto& scalar = nrs->scalar;
+  auto& fluid = nrs->fluid;
+
+  auto o_uz = fluid->o_U.slice(2 * nrs->fieldOffset, nrs->fieldOffset);
+
+  auto o_Fq = scalar->o_explicitTerms("temperature");
+  o_Fq.copyFrom(o_volsource, scalar->mesh("temperature")->Nlocal);
+  // rcpgamma_t_s now holds only the numerator (flux_area*qsurf/rhocp, see kgj.usr) --
+  // Ubar-normalization applied here via the per-step uz_flx_s instead of the
+  // every-1000-steps-throttled Fortran ubar. See userchk-throttle-attempt.md.
+  platform->linAlg->axpby(fluid->mesh->Nlocal, -rcpgamma_t_s / uz_flx_s, o_uz, 1.0, o_Fq);
+
+
+//  qvol   = volsource(ix,iy,iz,e)
+//  if (eg.le.nelgv) then  ! In fluid domain
+//     rhocp  = param(7)
+//     qvol   = qvol-rhocp*gamma_t*vz(ix,iy,iz,e)
+//  endif
+}
+
+// Per-element fluid/solid scalar-property split. Without this, NekRS's GPU
+// scalar solve uses [SCALAR TEMPERATURE]'s single diffusionCoeff/transportCoeff
+// uniformly across fluid AND solid -- kgj.usr's material_props() only ever sets
+// GLOBAL Nek5000 scalars (param(7)/param(8), rhocp_s/alpha_s), never a per-element
+// device array, so the solid was silently conducting at the FLUID's diffusivity
+// the whole time. Root cause of the non-physical rapid Nu decay seen before this
+// fix -- see kgj-performance/nusselt-bug.md and kgj-simulation-reference.md SS5.
+static int updateProperties = 1;
+
+void uservp(double time)
+{
+  auto& scalar = nrs->scalar;
+
+  if (updateProperties) {
+    auto mesh = scalar->mesh("temperature");
+    const auto o_con = scalar->o_diffusionCoeff("temperature");
+    const auto o_rhoCp = scalar->o_transportCoeff("temperature");
+
+    // conFluid/rhoCpFluid: read the value straight off the device array NekRS itself
+    // already evaluated from [SCALAR TEMPERATURE] diffusionCoeff/transportCoeff (still
+    // uniform at this point, before the cFill calls below split it) -- do NOT re-parse
+    // the raw .par string via platform->par->extract. NekRS evaluates math expressions
+    // like "1.0/15000.0/5.858" internally (parseFormula) and stores only the RESULT
+    // elsewhere; extract() sees the raw unevaluated string, which silently mis-parses as
+    // a bare dfloat (reads "1.0", drops the rest). Caught this exact bug in the Re=15000
+    // template-verify test: the run no longer crashed (conFluid_ was non-zero) but tbar/Nu
+    // came out wildly wrong (conFluid_=1.0 instead of 1/(Re*Pr)=1.138e-5, ~88,000x too
+    // large) because of it.
+    std::vector<dfloat> conFluidHost(1), rhoCpFluidHost(1);
+    o_con.copyTo(conFluidHost, 1);
+    o_rhoCp.copyTo(rhoCpFluidHost, 1);
+    const dfloat conFluid = conFluidHost[0];
+    const dfloat rhoCpFluid = rhoCpFluidHost[0];
+
+    const dfloat conSolid = condRatioSolidFluid_ * conFluid;
+    const dfloat rhoCpSolid = rhoCpRatioSolidFluid_ * rhoCpFluid;
+
+    cFill(mesh->Nelements, conFluid, conSolid, mesh->o_elementInfo, o_con);
+    cFill(mesh->Nelements, rhoCpFluid, rhoCpSolid, mesh->o_elementInfo, o_rhoCp);
+
+    updateProperties = 0;
+  }
+}
+
+
+void UDF_Setup0(MPI_Comm comm, setupAide &options)
+{
+  platform->options.getArgs("DT", dt0);
+
+  // Fluid/solid scalar-property split (uservp above) -- fixed copper/water material
+  // ratios from [CASEDATA] (plain numeric literals, safe to extract directly).
+  // conFluid/rhoCpFluid themselves are NOT read here -- see uservp's comment for why.
+  platform->par->extract("casedata", "condratiosolidfluid", condRatioSolidFluid_);
+  platform->par->extract("casedata", "rhocpratiosolidfluid", rhoCpRatioSolidFluid_);
+
+  // Stage 1 snapshot extraction config -- read from [CASEDATA], not environment
+  // variables, so it travels with the case files (no PBS env-propagation
+  // uncertainty across the nrsqsub submission chain). Unset stage1dir or
+  // snapshotinterval<=0 disables extraction entirely (default: off).
+  platform->par->extract("casedata", "stage1dir", stage1Dir);
+  platform->par->extract("casedata", "snapshotinterval", snapshotInterval);
+
+  // Optional grid-size override for test-scale runs (default: production 128x128x256,
+  // set above as stage1::Nx/Ny/Nz's initializers). Each is independently optional.
+  platform->par->extract("casedata", "stage1nx", stage1::Nx);
+  platform->par->extract("casedata", "stage1ny", stage1::Ny);
+  platform->par->extract("casedata", "stage1nz", stage1::Nz);
+
+  // Probe diagnostic config -- same on/off convention as stage1 (unset probesDir
+  // or probeInterval<=0 disables it entirely, default off).
+  platform->par->extract("casedata", "probesdir", probesDir);
+  platform->par->extract("casedata", "probeinterval", probeInterval);
+}
+
+
+
+void UDF_Setup()
+{
+  auto& scalar = nrs->scalar;
+  auto& fluid = nrs->fluid;
+  auto mesh = nrs->meshV;
+
+  nrs->userProperties = &uservp;
+
+  o_volsource.resize(scalar->mesh("temperature")->Nlocal);
+  nek::userchk();
+  std::vector<double> volsource(nek::ptr<double>("volsource"), nek::ptr<double>("volsource") + scalar->mesh("temperature")->Nlocal);
+  o_volsource.copyFrom(volsource);
+  nrs->userSource = &userSource;
+
+  std::vector<double> rcpgamma_t(nek::ptr<double>("rcpgamma_t"), nek::ptr<double>("rcpgamma_t") + 3);
+  rcpgamma_t_s = rcpgamma_t[0];
+
+  auto o_uz0 = fluid->o_U.slice(2 * nrs->fieldOffset, nrs->fieldOffset);
+  uz_flx_s = platform->linAlg->innerProd(fluid->mesh->Nlocal,
+                                          o_uz0,
+                                          fluid->mesh->o_LMM,
+                                          platform->comm.mpiComm()) /
+             fluid->mesh->volume;
+}
+
+void UDF_ExecuteStep(double time, int tstep)
+{
+  // Ramp dt down for the first 30 steps to absorb the constFlowRate correction shock
+  // (initial ubar is far below the forced target, see kgj-simulation-reference.md SS7) --
+  // mirrors the turbPipePeriodic example's startup-ramp pattern.
+  if (tstep < 30) {
+    platform->options.setArgs("DT", to_string_f(0.1 * dt0));
+  } else {
+    platform->options.setArgs("DT", to_string_f(dt0));
+  }
+
+  auto& scalar = nrs->scalar;
+  auto& fluid = nrs->fluid;
+
+  // Per-step, cheap GPU computation of volume-averaged v_z (== Fortran ubar) using the
+  // .slice()-based extraction verified exact-match against ubar in
+  // userchk-throttle-attempt.md (job 8570993) -- NOT the raw pointer-offset arithmetic
+  // that caused the ~240x tbar bug in the original throttle attempt.
+  auto o_uz = fluid->o_U.slice(2 * nrs->fieldOffset, nrs->fieldOffset);
+  uz_flx_s = platform->linAlg->innerProd(fluid->mesh->Nlocal,
+                                          o_uz,
+                                          fluid->mesh->o_LMM,
+                                          platform->comm.mpiComm()) /
+             fluid->mesh->volume;
+
+  // Throttle the expensive legacy userchk() (Nu/tbulk/tout diagnostics, gradm1, surface
+  // integrals, etc.) to once every snapshotInterval steps -- the only piece actually
+  // needed every step for the solve itself (gamma_t's Ubar-normalization) is handled
+  // above via uz_flx_s instead. See userchk-throttle-attempt.md. Tied to snapshotInterval
+  // (rather than a fixed 1000-step cadence) so the diagScalars diagnostics (Nu/tbulk/
+  // tbar/fluxes) read below are always fresh at the exact tstep each stage1 snapshot is
+  // written, not stale by up to ~1000 steps.
+  if (snapshotInterval > 0 && tstep % snapshotInterval == 0) {
+    nrs->copyToNek(time, tstep);
+    nek::userchk();
+    std::vector<double> volsource(nek::ptr<double>("volsource"), nek::ptr<double>("volsource") + scalar->mesh("temperature")->Nlocal);
+    o_volsource.copyFrom(volsource, scalar->mesh("temperature")->Nlocal);
+    std::vector<double> rcpgamma_t(nek::ptr<double>("rcpgamma_t"), nek::ptr<double>("rcpgamma_t") + 3);
+    rcpgamma_t_s = rcpgamma_t[0];
+  }
+
+  // Stage 1 snapshot extraction -- trigger cadence is still an open question
+  // (see kgj-interpolation-pipeline/README.md); snapshotInterval is read from
+  // [CASEDATA] in UDF_Setup0, not hardcoded here.
+  if (snapshotInterval > 0 && tstep % snapshotInterval == 0) {
+    stage1::extractSnapshot(nrs, time, tstep);
+  }
+
+  // Probe diagnostic -- every probeInterval steps (typically 1, every step, to
+  // resolve fast local fluctuations for the autocorrelation/decorrelation-
+  // timescale estimate). probesDir/probeInterval read from [CASEDATA] in
+  // UDF_Setup0; unset/<=0 disables it entirely.
+  if (probeInterval > 0 && tstep % probeInterval == 0) {
+    probes::writeStep(nrs, time, tstep);
+  }
+}

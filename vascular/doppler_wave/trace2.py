@@ -245,4 +245,6 @@ plt.ylabel("Velocity [cm/s]")
 plt.grid(True)
 
 plt.tight_layout()
+
+plt.show()
 plt.savefig("digitized_waveform2.png", dpi=200)

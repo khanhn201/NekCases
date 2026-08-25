@@ -2,10 +2,10 @@ userSections = CASEDATA
 
 [GENERAL]
 polynomialOrder = 7
-numSteps = 510000
-dt = 1.725e-05
+numSteps = 500000
+dt = 2e-05
 timeStepper = tombo2
-checkpointInterval = 40000
+checkpointInterval = 10000
 constFlowRate = meanVelocity=1.4962366 + direction=Z
 
 scalars = temperature, lambda
@@ -56,5 +56,5 @@ rhoCpRatioSolidFluid = 0.8197368421
 # escape mechanism that preserves case (see inipp.cpp's quotedWords handling).
 # An unquoted path here will silently resolve to a lowercased, nonexistent
 # directory and the .udf's ofstream writes will fail silently.
-stage1Dir = "/path/to/postprocessing/stage1/<campaign-name>/<case-id>"
-snapshotInterval = 0
+stage1Dir = "/lus/flare/projects/AdvanceFusionFission/khanhn/wirecoilRS/re5000/r1/"
+snapshotInterval = 50

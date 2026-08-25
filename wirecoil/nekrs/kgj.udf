@@ -559,9 +559,6 @@ void UDF_Setup()
 
 void UDF_ExecuteStep(double time, int tstep)
 {
-  // Ramp dt down for the first 30 steps to absorb the constFlowRate correction shock
-  // (initial ubar is far below the forced target, see kgj-simulation-reference.md SS7) --
-  // mirrors the turbPipePeriodic example's startup-ramp pattern.
   if (tstep < 30) {
     platform->options.setArgs("DT", to_string_f(0.1 * dt0));
   } else {
@@ -571,10 +568,6 @@ void UDF_ExecuteStep(double time, int tstep)
   auto& scalar = nrs->scalar;
   auto& fluid = nrs->fluid;
 
-  // Per-step, cheap GPU computation of volume-averaged v_z (== Fortran ubar) using the
-  // .slice()-based extraction verified exact-match against ubar in
-  // userchk-throttle-attempt.md (job 8570993) -- NOT the raw pointer-offset arithmetic
-  // that caused the ~240x tbar bug in the original throttle attempt.
   auto o_uz = fluid->o_U.slice(2 * nrs->fieldOffset, nrs->fieldOffset);
   uz_flx_s = platform->linAlg->innerProd(fluid->mesh->Nlocal,
                                           o_uz,
@@ -582,14 +575,7 @@ void UDF_ExecuteStep(double time, int tstep)
                                           platform->comm.mpiComm()) /
              fluid->mesh->volume;
 
-  // Throttle the expensive legacy userchk() (Nu/tbulk/tout diagnostics, gradm1, surface
-  // integrals, etc.) to once every snapshotInterval steps -- the only piece actually
-  // needed every step for the solve itself (gamma_t's Ubar-normalization) is handled
-  // above via uz_flx_s instead. See userchk-throttle-attempt.md. Tied to snapshotInterval
-  // (rather than a fixed 1000-step cadence) so the diagScalars diagnostics (Nu/tbulk/
-  // tbar/fluxes) read below are always fresh at the exact tstep each stage1 snapshot is
-  // written, not stale by up to ~1000 steps.
-  if (snapshotInterval > 0 && tstep % snapshotInterval == 0) {
+  if ((snapshotInterval > 0 && tstep % snapshotInterval == 0) || (tstep < 5)) {
     nrs->copyToNek(time, tstep);
     nek::userchk();
     nrs->copyFromNek(time);

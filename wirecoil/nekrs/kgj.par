@@ -3,12 +3,17 @@ userSections = CASEDATA
 [GENERAL]
 polynomialOrder = 7
 numSteps = 510000
-dt = 3.5e-05
+dt = 1.725e-05
 timeStepper = tombo2
 checkpointInterval = 40000
 constFlowRate = meanVelocity=1.4962366 + direction=Z
 
-scalars = temperature
+scalars = temperature, lambda
+
+
+[MESH]
+hRefine = 2
+
 
 [FLUID VELOCITY]
 boundaryTypeMap = zeroDirichlet, zeroDirichlet
@@ -20,6 +25,7 @@ viscosity = 1.0/5000.0
 residualTol = 1e-08
 
 
+
 [SCALAR TEMPERATURE]
 boundaryTypeMap = udfNeumann
 diffusionCoeff = 1.0/5000.0/5.858 # 1/Re/Pr
@@ -28,6 +34,9 @@ transportCoeff = 1.0
 residualTol = 1e-08
 mesh = fluid + solid
 
+
+[SCALAR LAMBDA]
+solver=none
 
 [CASEDATA]
 # Fluid/solid scalar-property split (kgj.udf's uservp) -- fixed copper/water

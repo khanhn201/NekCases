@@ -592,6 +592,7 @@ void UDF_ExecuteStep(double time, int tstep)
   if (snapshotInterval > 0 && tstep % snapshotInterval == 0) {
     nrs->copyToNek(time, tstep);
     nek::userchk();
+    nrs->copyFromNek(time);
     std::vector<double> volsource(nek::ptr<double>("volsource"), nek::ptr<double>("volsource") + scalar->mesh("temperature")->Nlocal);
     o_volsource.copyFrom(volsource, scalar->mesh("temperature")->Nlocal);
     std::vector<double> rcpgamma_t(nek::ptr<double>("rcpgamma_t"), nek::ptr<double>("rcpgamma_t") + 3);

@@ -172,6 +172,7 @@ c     is written -- see kgj.udf's UDF_ExecuteStep.
       nv = nx1*ny1*nz1*nelv
       nt = nx1*ny1*nz1*nelt
 
+      call lambda2(t(1,1,1,1,2))
       
       rhocp = 1.0
       call nekrs_registerPtr('volsource', volsource)

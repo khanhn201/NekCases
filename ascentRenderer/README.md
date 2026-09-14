@@ -4,6 +4,7 @@
     - For example, the fld files will be `c1/case0.f%5d`
 - This do all the rendering in the UDF_Setup and exit right after
 - Add rendering pipeline to `ascent.yaml`
+- This only has velocity. If you want to add more scalars, call `nekAscent::addVariable` in the UDF file
 
 You will still need the usual .par and .re2 files as it still needs the mesh and par file for the full setup.
 

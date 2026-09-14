@@ -1,0 +1,46 @@
+#!/bin/bash
+#PBS -A AdvanceFusionFission
+#PBS -N nekRS_inside
+#PBS -l walltime=00:10:00
+#PBS -l select=1
+#PBS -l place=scatter
+#PBS -l filesystems=home:flare
+#PBS -k doe
+#PBS -j oe
+export TZ='/usr/share/zoneinfo/US/Central'
+cd $PBS_O_WORKDIR
+echo Jobid: $PBS_JOBID
+echo Running on host `hostname`
+echo Running on nodes `cat $PBS_NODEFILE`
+module load cmake
+module use /soft/modulefiles/
+module load ascent/release/v0.9.5
+module list
+
+export NEKRS_ASCENT_INSTALL_DIR="/soft/visualization/ascent/release/v0.9.5/ascent-checkout/"
+export NEKRS_MPI_THREAD_MULTIPLE=1
+export NEKRS_HOME=/home/khanhn/.local/nekmhd
+export NEKRS_GPU_MPI=0
+export MPICH_GPU_SUPPORT_ENABLED=0
+export NEKRS_CACHE_BCAST=1
+if [ $NEKRS_CACHE_BCAST -eq 1 ]; then
+  export NEKRS_LOCAL_TMP_DIR=/tmp/
+fi
+export OCCA_DPCPP_COMPILER_FLAGS="-O3 -fsycl -fsycl-targets=intel_gpu_pvc -ftarget-register-alloc-mode=pvc:auto -fma"
+export FI_CXI_RX_MATCH_MODE=hybrid
+export UR_L0_USE_COPY_ENGINE=0
+export ROMIO_HINTS=.romio_hint
+export MPICH_MPIIO_STATS=1
+
+# precompilation
+date
+case_tmp=inside
+ntasks_tmp=12
+mpiexec -n 12 -ppn 12 --cpu-bind=list:1-8:9-16:17-24:25-32:33-40:41-48:53-60:61-68:69-76:77-84:85-92:93-100 -- ./.lhelper /home/khanhn/.local/nekmhd/bin/nekrs --setup ${case_tmp} --backend dpcpp --device-id 0  --build-only ${ntasks_tmp}
+if [ $? -ne 0 ]; then
+  exit
+fi
+date
+
+# actual run
+mpiexec -n 12 -ppn 12 --cpu-bind=list:1-8:9-16:17-24:25-32:33-40:41-48:53-60:61-68:69-76:77-84:85-92:93-100 -- ./.lhelper /home/khanhn/.local/nekmhd/bin/nekrs --setup inside --backend dpcpp --device-id 0 

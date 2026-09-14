@@ -1,0 +1,50 @@
+- 
+  action: "add_pipelines"
+  pipelines:
+    pl1:
+      f1:
+        type: "composite_vector"
+        params:
+          field1: "velocity_x"
+          field2: "velocity_y"
+          field3: "velocity_z"
+          output_name: "my_vel"
+      f2:
+        type: "vector_magnitude"
+        params:
+          field: "my_vel"
+          output_name: "velocity_mag"
+    pl2:
+      pipeline: "pl1"
+      f3:
+        type: "slice"
+        params:
+          point:
+            x: 0.0
+            y: 0.0
+            z: 1.0
+          normal:
+            x: 0.0
+            y: 0.0
+            z: 1.0
+- 
+  action: "add_scenes"
+  scenes:
+    s1:
+      plots:
+        p1:
+          type: "pseudocolor"
+          field: "velocity_mag"
+          pipeline: "pl2"
+          color_table:
+            name: "Cool to Warm Extended"
+      renders:
+        r1:
+          camera:
+            position: [0.0, 0.0, 4.0]
+            look_at: [0.0, 0.0, 0.0]
+            up: [0.0, 1.0, 0.0]
+            zoom: 0.5
+          image_prefix: "s00_%06d"
+          image_width: 2048
+          image_height: 2048

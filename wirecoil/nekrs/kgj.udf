@@ -559,11 +559,6 @@ void UDF_Setup()
 
 void UDF_ExecuteStep(double time, int tstep)
 {
-  if (tstep < 30) {
-    platform->options.setArgs("DT", to_string_f(0.1 * dt0));
-  } else {
-    platform->options.setArgs("DT", to_string_f(dt0));
-  }
 
   auto& scalar = nrs->scalar;
   auto& fluid = nrs->fluid;

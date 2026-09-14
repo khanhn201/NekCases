@@ -1,0 +1,116 @@
+
+//
+// nekRS User Defined File
+//
+#include "udf.hpp"
+#include "nekAscent.hpp"
+#include <dirent.h>
+#include <fnmatch.h>
+
+
+#define ASCENT_UPDATE_SIGNAL SIGUSR1
+volatile sig_atomic_t processAscentYaml = 0;
+
+#ifdef __okl__
+
+
+// Boundary conditions
+void udfDirichlet(bcData *bc)
+{
+
+}
+
+#endif
+
+
+
+
+void UDF_LoadKernels(deviceKernelProperties& kernelInfo)
+{
+}
+
+void UDF_Setup0(MPI_Comm comm, setupAide &options)
+{
+  
+}
+
+void userq(double time)
+{
+  auto mesh = nrs->meshV;
+}
+
+void UDF_Setup()
+{
+
+  bool renderCheckpoint = true;
+#ifdef NEKRS_ASCENT_ENABLED 
+  {
+    auto handleSignal = [](int signal) {
+      processAscentYaml = 1;
+    };
+    std::signal(ASCENT_UPDATE_SIGNAL, handleSignal);
+
+    auto meshV = nrs->meshV;
+
+    deviceMemory<dfloat> o_ux(nrs->fluid->o_U.slice(0 * nrs->fluid->fieldOffset));
+    deviceMemory<dfloat> o_uy(nrs->fluid->o_U.slice(1 * nrs->fluid->fieldOffset));
+    deviceMemory<dfloat> o_uz(nrs->fluid->o_U.slice(2 * nrs->fluid->fieldOffset));
+    std::vector<deviceMemory<dfloat>> o_U{o_ux, o_uy, o_uz};
+    nekAscent::addVariable("velocity", meshV, o_U);
+
+    const int Nviz = std::min(2*meshV->N, 13);
+    const auto uniform = true;
+    nekAscent::setup(meshV, "./ascent.yaml", Nviz, uniform, true, false);
+  }
+  if (renderCheckpoint) {
+    const char *dirPattern = "c*";
+    const char *filePattern = "*0.f*";
+
+    std::vector<std::string> filenames;
+    DIR *dp = opendir(".");
+    struct dirent *entry;
+
+    if (dp == nullptr) {
+        perror("opendir");
+        exit(1);
+    }
+    struct dirent *subentry;
+    while ((subentry = readdir(dp))) {
+        if (fnmatch(filePattern, subentry->d_name, 0) == 0) {
+            filenames.emplace_back(subentry->d_name);
+        }
+    }
+    closedir(dp);
+    std::sort(filenames.begin(), filenames.end());
+
+    int tstep = 0;
+    for (size_t i = 0; i < filenames.size(); ++i) {
+        const std::string& name = filenames[i];
+        const std::vector<std::string> fileList{name};
+        tstep += 1;
+        double time = 0.0;
+        nrs->restartFromFiles(fileList);
+        platform->options.getArgs("START TIME", time);
+        blockSignal(ASCENT_UPDATE_SIGNAL);
+        MPI_Bcast(const_cast<sig_atomic_t*>(&processAscentYaml), 1, MPI_INT, 0, platform->comm.mpiComm());
+        processAscentYaml = true;
+        nekAscent::run(time, tstep);
+        if (processAscentYaml) {
+          nekAscent::run(time, tstep);
+          processAscentYaml = 0;
+        }
+        if (i == filenames.size() - 1) {
+            nekAscent::finalize();
+        }
+        unblockSignal(ASCENT_UPDATE_SIGNAL);
+    }
+
+    exit(0);
+  }
+#endif
+}
+
+void UDF_ExecuteStep(double time, int tstep)
+{
+ 
+}

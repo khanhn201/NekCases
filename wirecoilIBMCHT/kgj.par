@@ -1,0 +1,45 @@
+userSections = CASEDATA
+
+[GENERAL]
+startFrom = "kgj.f00000+x"
+polynomialOrder = 7
+numSteps = 500000
+dt = 1e-04
+timeStepper = tombo2
+checkpointInterval = 1000
+constFlowRate = meanVelocity=1.4962366 + direction=Z
+
+scalars = temperature, lambda
+
+advectionSubCyclingSteps = 2
+
+
+[MESH]
+hRefine = 2
+
+[FLUID VELOCITY]
+boundaryTypeMap = zeroDirichlet
+residualTol = 1e-12
+rho = 1.0
+viscosity = 1.0/5000.0
+
+[FLUID PRESSURE]
+residualTol = 1e-08
+
+
+
+[SCALAR TEMPERATURE]
+boundaryTypeMap = udfNeumann
+diffusionCoeff = 1.0/5000.0/5.858 # 1/Re/Pr
+transportCoeff = 1.0
+
+residualTol = 1e-08
+mesh = fluid + solid
+
+
+[SCALAR LAMBDA]
+solver=none
+
+[CASEDATA]
+condRatioSolidFluid = 633.2236842
+rhoCpRatioSolidFluid = 0.8197368421

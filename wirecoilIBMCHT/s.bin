@@ -1,0 +1,71 @@
+#!/bin/bash
+#PBS -A AdvanceFusionFission
+#PBS -N nekRS_kgj
+#PBS -l walltime=12:00:00
+#PBS -l select=2
+#PBS -l place=scatter
+#PBS -l filesystems=home:flare
+#PBS -k doe
+#PBS -j oe
+
+
+export TZ='/usr/share/zoneinfo/US/Central'
+cd $PBS_O_WORKDIR
+echo Jobid: $PBS_JOBID
+echo Running on host `hostname`
+echo Running on nodes `cat $PBS_NODEFILE`
+module load cmake
+module list
+export NEKRS_HOME=/home/khanhn/.local/nekmhd_ascent
+export NEKRS_GPU_MPI=0
+export MPICH_GPU_SUPPORT_ENABLED=0
+export NEKRS_CACHE_BCAST=1
+if [ $NEKRS_CACHE_BCAST -eq 1 ]; then
+  export NEKRS_LOCAL_TMP_DIR=/tmp/
+fi
+export OCCA_DPCPP_COMPILER_FLAGS="-O3 -fsycl -fsycl-targets=intel_gpu_pvc -ftarget-register-alloc-mode=pvc:auto -fma"
+export FI_CXI_RX_MATCH_MODE=hybrid
+export UR_L0_USE_COPY_ENGINE=0
+export ROMIO_HINTS=.romio_hint
+export MPICH_MPIIO_STATS=1
+
+
+
+# VTK
+export NEKRS_ENABLE_VTK=1
+export VTK_DIR="/home/khanhn/local"
+export NEKRS_VTK_INSTALL_DIR="$VTK_DIR"
+
+# VTK runtime path
+export LD_LIBRARY_PATH="${VTK_DIR}/lib64:${LD_LIBRARY_PATH}"
+
+# Embree
+# Embree is built at at $HOME/embree_local
+export EMBREE_ROOT="/home/khanhn/local"
+export EMBREE_INCLUDE_DIR="$EMBREE_ROOT/include"     # contains embree4/rtcore.h
+export EMBREE_LIB_DIR="$EMBREE_ROOT/lib64"           # contains libembree4.so
+
+# Embree runtime path
+export LD_LIBRARY_PATH="${EMBREE_LIB_DIR}:${LD_LIBRARY_PATH}"
+
+# UDF compile and link flags 
+# Extra include dirs for the UDF build
+export NEKRS_UDF_INCLUDES="${VTK_DIR}/include/vtk-9.3;${EMBREE_INCLUDE_DIR}"
+
+# Extra link flags for the UDF 
+export NEKRS_UDF_LDFLAGS="-L${VTK_DIR}/lib64  -lvtkCommonCore-9.3 -lvtkCommonDataModel-9.3 -lvtkFiltersCore-9.3 -lvtkIOXML-9.3 -lvtkCommonExecutionModel-9.3 -lvtksys-9.3  -lvtkIOCore-9.3 -lvtkIOExodus-9.3 -lvtkIOGeometry-9.3 -lvtkIOLegacy-9.3  -L${EMBREE_LIB_DIR} -lembree4 -lm -ldl -lpthread"
+
+# Preprocessor defines for the UDF
+if [ "$NEKRS_ENABLE_VTK" -eq 1 ]; then
+  export NEKRS_UDF_DEFINES="-DENABLE_VTK"
+fi
+
+
+# Add to global LDFLAGS as fallback
+export LDFLAGS="${NEKRS_UDF_LDFLAGS} ${LDFLAGS}"
+
+export VERBOSE=1
+
+mpiexec -n 24 -ppn 12 --cpu-bind=list:1-8:9-16:17-24:25-32:33-40:41-48:53-60:61-68:69-76:77-84:85-92:93-100 -- ./.lhelper /home/khanhn/.local/nekmhd_ascent/bin/nekrs --setup kgj --backend dpcpp --device-id 0 
+
+

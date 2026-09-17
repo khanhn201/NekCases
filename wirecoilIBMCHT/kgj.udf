@@ -1,0 +1,152 @@
+#include "ibm.udf"
+#ifdef __okl__
+#include "ibm.oudf"
+void udfNeumann(bcData *bc)
+{
+  if (isField("scalar temperature")) {
+    bc->fluxScalar = 1.0;
+  }
+}
+
+@kernel void cFill(const dlong Nelements,
+                   const dfloat CONST1,
+                   const dfloat CONST2,
+                   @ restrict const dlong *eInfo,
+                   @ restrict dfloat *QVOL)
+{
+  for (dlong e = 0; e < Nelements; ++e; @outer(0)) {
+    const dlong solid = eInfo[e];
+    for (int n = 0; n < p_Np; ++n; @inner(0)) {
+      const int id = e * p_Np + n;
+      QVOL[id] = CONST1;
+      if (solid) {
+        QVOL[id] = CONST2;
+      }
+    }
+  }
+}
+#endif
+
+#include <fstream>
+#include <chrono>
+#include <cstdint>
+
+static deviceMemory<dfloat> o_volsource;
+dfloat rcpgamma_t_s;
+dfloat uz_flx_s;
+static dfloat dt0;
+static std::string stage1Dir;
+static int snapshotInterval = 0;
+static std::string probesDir;
+static int probeInterval = 0;
+
+static dfloat condRatioSolidFluid_;
+static dfloat rhoCpRatioSolidFluid_;
+
+
+void userSource(double time)
+{
+  auto& scalar = nrs->scalar;
+  auto& fluid = nrs->fluid;
+
+  auto o_uz = fluid->o_U.slice(2 * nrs->fieldOffset, nrs->fieldOffset);
+
+  auto o_Fq = scalar->o_explicitTerms("temperature");
+  o_Fq.copyFrom(o_volsource, scalar->mesh("temperature")->Nlocal);
+  platform->linAlg->axpby(fluid->mesh->Nlocal, -rcpgamma_t_s / uz_flx_s, o_uz, 1.0, o_Fq);
+
+  IBM_PenaltyNoSlipBCCustomSource(time);
+}
+
+static int updateProperties = 1;
+
+void uservp(double time)
+{
+  auto& scalar = nrs->scalar;
+
+  if (updateProperties) {
+    auto mesh = scalar->mesh("temperature");
+    const auto o_con = scalar->o_diffusionCoeff("temperature");
+    const auto o_rhoCp = scalar->o_transportCoeff("temperature");
+
+    std::vector<dfloat> conFluidHost(1), rhoCpFluidHost(1);
+    o_con.copyTo(conFluidHost, 1);
+    o_rhoCp.copyTo(rhoCpFluidHost, 1);
+    const dfloat conFluid = conFluidHost[0];
+    const dfloat rhoCpFluid = rhoCpFluidHost[0];
+
+    const dfloat conSolid = condRatioSolidFluid_ * conFluid;
+    const dfloat rhoCpSolid = rhoCpRatioSolidFluid_ * rhoCpFluid;
+
+    cFill(mesh->Nelements, conFluid, conSolid, mesh->o_elementInfo, o_con);
+    cFill(mesh->Nelements, rhoCpFluid, rhoCpSolid, mesh->o_elementInfo, o_rhoCp);
+
+
+    auto o_mue = nrs->fluid->o_diffusionCoeff();
+    IBM_FillProp(o_mue, 0.002); // 10*mu_fluid
+    IBM_FillProp(o_con, conSolid);
+    IBM_FillProp(o_rhoCp, rhoCpFluid);
+
+    updateProperties = 0;
+  }
+}
+
+
+void UDF_Setup0(MPI_Comm comm, setupAide &options)
+{
+  platform->options.getArgs("DT", dt0);
+  platform->par->extract("casedata", "condratiosolidfluid", condRatioSolidFluid_);
+  platform->par->extract("casedata", "rhocpratiosolidfluid", rhoCpRatioSolidFluid_);
+}
+
+
+
+void UDF_Setup()
+{
+  auto& scalar = nrs->scalar;
+  auto& fluid = nrs->fluid;
+  auto mesh = nrs->meshV;
+
+  nrs->userProperties = &uservp;
+
+  o_volsource.resize(scalar->mesh("temperature")->Nlocal);
+  nek::userchk();
+  std::vector<double> volsource(nek::ptr<double>("volsource"), nek::ptr<double>("volsource") + scalar->mesh("temperature")->Nlocal);
+  o_volsource.copyFrom(volsource);
+  nrs->userSource = &userSource;
+
+  std::vector<double> rcpgamma_t(nek::ptr<double>("rcpgamma_t"), nek::ptr<double>("rcpgamma_t") + 3);
+  rcpgamma_t_s = rcpgamma_t[0];
+
+  auto o_uz0 = fluid->o_U.slice(2 * nrs->fieldOffset, nrs->fieldOffset);
+  uz_flx_s = platform->linAlg->innerProd(fluid->mesh->Nlocal,
+                                          o_uz0,
+                                          fluid->mesh->o_LMM,
+                                          platform->comm.mpiComm()) /
+             fluid->mesh->volume;
+  IBM_Setup();
+}
+
+void UDF_ExecuteStep(double time, int tstep)
+{
+
+  auto& scalar = nrs->scalar;
+  auto& fluid = nrs->fluid;
+
+  auto o_uz = fluid->o_U.slice(2 * nrs->fieldOffset, nrs->fieldOffset);
+  uz_flx_s = platform->linAlg->innerProd(fluid->mesh->Nlocal,
+                                          o_uz,
+                                          fluid->mesh->o_LMM,
+                                          platform->comm.mpiComm()) /
+             fluid->mesh->volume;
+
+  if ((tstep%50)==0) {
+    nrs->copyToNek(time, tstep);
+    nek::userchk();
+    nrs->copyFromNek(time);
+    std::vector<double> volsource(nek::ptr<double>("volsource"), nek::ptr<double>("volsource") + scalar->mesh("temperature")->Nlocal);
+    o_volsource.copyFrom(volsource, scalar->mesh("temperature")->Nlocal);
+    std::vector<double> rcpgamma_t(nek::ptr<double>("rcpgamma_t"), nek::ptr<double>("rcpgamma_t") + 3);
+    rcpgamma_t_s = rcpgamma_t[0];
+  }
+}

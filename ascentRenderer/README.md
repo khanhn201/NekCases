@@ -1,8 +1,14 @@
-- Replace case.udf with your udf file.
+- Replace case.udf into your udf file.
 - The udf file search for `c*/*0.f*`
     - Put all your checkpoint files into folder `c1`
     - For example, the fld files will be `c1/case0.f%5d`
+- This do all the rendering in the UDF_Setup and exit right after
 - Add rendering pipeline to `ascent.yaml`
+- This only has velocity. If you want to add more scalars, call `nekAscent::addVariable` in the UDF file
+
+You will still need the usual .par and .re2 files as it still needs the mesh and par file for the full setup.
+
+In actual runs, the rendering call can be instead called in UDF_ExecuteStep instead for in-situ rendering.
 
 ### On Aurora
 See example `s.bin`

@@ -14,8 +14,8 @@ scalars = temperature, lambda
 advectionSubCyclingSteps = 2
 
 
-[MESH]
-hRefine = 2
+#[MESH]
+#hRefine = 3
 
 [FLUID VELOCITY]
 boundaryTypeMap = zeroDirichlet

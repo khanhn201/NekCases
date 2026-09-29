@@ -153,8 +153,8 @@ void UDF_ExecuteStep(double time, int tstep)
     nrs->copyToNek(time, tstep);
     nek::userchk();
     nrs->copyFromNek(time);
-      io->addVariable("time", time);
-      io->process();
+    io->addVariable("time", time);
+    io->process(); # Dump uniform for clean lambda2
   }
   if (nrs->lastStep) io->close();
 }

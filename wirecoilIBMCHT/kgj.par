@@ -7,7 +7,7 @@ numSteps = 500000
 dt = 1e-04
 timeStepper = tombo2
 checkpointInterval = 1000
-constFlowRate = meanVelocity=1.4962366 + direction=Z
+constFlowRate = meanVelocity=1.0 + direction=Z
 
 scalars = temperature, lambda
 
@@ -15,7 +15,7 @@ advectionSubCyclingSteps = 2
 
 
 #[MESH]
-#hRefine = 3
+#hRefine = 2
 
 [FLUID VELOCITY]
 boundaryTypeMap = zeroDirichlet

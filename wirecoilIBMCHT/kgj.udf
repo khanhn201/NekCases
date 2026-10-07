@@ -67,8 +67,8 @@ void uservp(double time)
 
   if (updateProperties) {
     auto mesh = scalar->mesh("temperature");
-    const auto o_con = scalar->o_diffusionCoeff("temperature");
-    const auto o_rhoCp = scalar->o_transportCoeff("temperature");
+    auto o_con = scalar->o_diffusionCoeff("temperature");
+    auto o_rhoCp = scalar->o_transportCoeff("temperature");
 
     std::vector<dfloat> conFluidHost(1), rhoCpFluidHost(1);
     o_con.copyTo(conFluidHost, 1);
@@ -86,7 +86,7 @@ void uservp(double time)
     auto o_mue = nrs->fluid->o_diffusionCoeff();
     IBM_FillProp(o_mue, 0.002); // 10*mu_fluid
     IBM_FillProp(o_con, conSolid);
-    IBM_FillProp(o_rhoCp, rhoCpFluid);
+    IBM_FillProp(o_rhoCp, rhoCpSolid);
 
     updateProperties = 0;
   }
